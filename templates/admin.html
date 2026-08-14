@@ -66,9 +66,14 @@
       <h2>예약현황</h2>
       <button onclick="loadAll()">새로고침</button>
     </div>
+    <div class="row">
+      <label for="reservationDate" class="muted">예약일</label>
+      <input id="reservationDate" type="date" onchange="renderReservations()">
+      <button onclick="clearReservationDate()">전체보기</button>
+    </div>
     <div class="scroll">
       <table>
-        <thead><tr><th>상태</th><th>녹음실</th><th>예약시간</th><th>닉네임</th><th>전화 끝4자리</th><th></th></tr></thead>
+        <thead><tr><th>상태</th><th>녹음실</th><th>예약시간</th><th>닉네임</th><th>전화 끝4자리</th><th>관리</th></tr></thead>
         <tbody id="reservations"></tbody>
       </table>
     </div>
@@ -77,6 +82,8 @@
 
 <script>
 let rooms = [];
+let reservationRows = [];
+let reservationRoomMap = {};
 
 async function api(url, options={}) {
   const res = await fetch(url, {
@@ -97,6 +104,40 @@ function toISO(localValue) {
 function fmt(iso) {
   if (!iso) return '-';
   return new Date(iso).toLocaleString('ko-KR');
+}
+
+function localDateKey(iso) {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function clearReservationDate() {
+  document.getElementById('reservationDate').value = '';
+  renderReservations();
+}
+
+function renderReservations() {
+  const selectedDate = document.getElementById('reservationDate').value;
+  const rows = selectedDate
+    ? reservationRows.filter(r => localDateKey(r.start_at) === selectedDate)
+    : reservationRows;
+
+  document.getElementById('reservations').innerHTML = rows.map(r=>`
+    <tr>
+      <td><span class="badge">${escapeHtml(r.status)}</span></td>
+      <td>${escapeHtml(reservationRoomMap[r.room_id]||('녹음실 #'+r.room_id))}</td>
+      <td>${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
+      <td>${escapeHtml(r.nickname)}</td>
+      <td>${escapeHtml(r.phone_last4)}</td>
+      <td>
+        ${r.status !== '취소됨'
+          ? `<button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>`
+          : `<button class="danger" onclick='deleteCancelledReservation(${JSON.stringify(r.id)})'>삭제</button>`}
+      </td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">해당 조건의 예약이 없습니다.</td></tr>';
 }
 
 async function createRoom() {
@@ -167,6 +208,14 @@ async function cancelReservation(id) {
   } catch(e) { alert(e.message); }
 }
 
+async function deleteCancelledReservation(id) {
+  if (!confirm('취소된 예약 기록을 완전히 삭제하시겠습니까?')) return;
+  try {
+    await api('/api/admin/reservations/'+id, {method:'DELETE'});
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
 async function loadAll() {
   try {
     rooms = await api('/api/admin/rooms');
@@ -197,16 +246,9 @@ async function loadAll() {
         <div class="row"><button class="danger" onclick='deleteBlock(${JSON.stringify(b.id)})'>해제</button></div>
       </div>`).join('') || '<div class="muted">예약불가 지정이 없습니다.</div>';
 
-    const reservations = await api('/api/admin/reservations?include_cancelled=true');
-    document.getElementById('reservations').innerHTML = reservations.map(r=>`
-      <tr>
-        <td><span class="badge">${escapeHtml(r.status)}</span></td>
-        <td>${escapeHtml(roomMap[r.room_id]||('녹음실 #'+r.room_id))}</td>
-        <td>${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
-        <td>${escapeHtml(r.nickname)}</td>
-        <td>${escapeHtml(r.phone_last4)}</td>
-        <td>${r.status !== '취소됨' ? `<button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>` : ''}</td>
-      </tr>`).join('') || '<tr><td colspan="6" class="muted">예약이 없습니다.</td></tr>';
+    reservationRows = await api('/api/admin/reservations?include_cancelled=true');
+    reservationRoomMap = roomMap;
+    renderReservations();
   } catch(e) {
     alert(e.message);
   }

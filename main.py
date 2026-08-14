@@ -446,6 +446,24 @@ def admin_cancel_reservation(
     return admin_reservation(row)
 
 
+@app.delete("/api/admin/reservations/{reservation_id}")
+def admin_delete_cancelled_reservation(
+    reservation_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin(request)
+    row = db.get(Reservation, reservation_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다.")
+    if row.cancelled_at is None:
+        raise HTTPException(status_code=409, detail="취소된 예약만 삭제할 수 있습니다.")
+
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/admin/blocks")
 def admin_list_blocks(request: Request, db: Session = Depends(get_db)):
     require_admin(request)
