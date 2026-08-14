@@ -1,0 +1,223 @@
+\
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ academy_name }} 관리자</title>
+  <style>
+    :root { color-scheme: light dark; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Apple SD Gothic Neo",sans-serif; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:Canvas; color:CanvasText; }
+    header { position:sticky; top:0; z-index:3; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid color-mix(in srgb, CanvasText 14%, transparent); background:color-mix(in srgb, Canvas 92%, transparent); backdrop-filter:blur(18px); }
+    header h1 { font-size:20px; margin:0; }
+    .wrap { max-width:1100px; margin:0 auto; padding:22px; display:grid; gap:22px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
+    .card { border:1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius:20px; padding:18px; }
+    h2 { margin:0 0 14px; font-size:20px; }
+    input, select, button { font:inherit; border-radius:12px; padding:10px 12px; border:1px solid color-mix(in srgb, CanvasText 18%, transparent); background:Canvas; color:CanvasText; }
+    button { cursor:pointer; }
+    button.primary { background:#0a84ff; color:#fff; border-color:#0a84ff; font-weight:700; }
+    button.danger { color:#ff453a; }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0; }
+    .room { padding:12px 0; border-bottom:1px solid color-mix(in srgb, CanvasText 10%, transparent); }
+    .room:last-child { border-bottom:0; }
+    .muted { opacity:.65; font-size:13px; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th, td { text-align:left; padding:10px 8px; border-bottom:1px solid color-mix(in srgb, CanvasText 10%, transparent); vertical-align:top; }
+    .badge { display:inline-block; padding:3px 8px; border-radius:999px; background:color-mix(in srgb, #0a84ff 18%, transparent); }
+    .scroll { overflow:auto; }
+  </style>
+</head>
+<body>
+<header>
+  <h1>{{ academy_name }} 관리자</h1>
+  <form method="post" action="/admin/logout"><button>로그아웃</button></form>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <section class="card">
+      <h2>녹음실 관리</h2>
+      <div class="row">
+        <input id="newRoomName" placeholder="예: 녹음실 1" style="flex:1">
+        <button class="primary" onclick="createRoom()">추가</button>
+      </div>
+      <div id="rooms"></div>
+    </section>
+
+    <section class="card">
+      <h2>예약불가 지정</h2>
+      <div class="row"><select id="blockRoom" style="flex:1"></select></div>
+      <div class="row">
+        <input id="blockStart" type="datetime-local" style="flex:1">
+        <input id="blockEnd" type="datetime-local" style="flex:1">
+      </div>
+      <div class="row">
+        <input id="blockReason" placeholder="사유 (선택)" style="flex:1">
+        <button class="primary" onclick="createBlock()">지정</button>
+      </div>
+      <div id="blocks"></div>
+    </section>
+  </div>
+
+  <section class="card">
+    <div class="row" style="justify-content:space-between">
+      <h2>예약현황</h2>
+      <button onclick="loadAll()">새로고침</button>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>상태</th><th>녹음실</th><th>예약시간</th><th>닉네임</th><th>전화 끝4자리</th><th></th></tr></thead>
+        <tbody id="reservations"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+let rooms = [];
+
+async function api(url, options={}) {
+  const res = await fetch(url, {
+    headers: {'Content-Type':'application/json', ...(options.headers||{})},
+    ...options
+  });
+  if (res.status === 401) { location.href='/admin'; throw new Error('로그인 필요'); }
+  const data = await res.json().catch(()=>({}));
+  if (!res.ok) throw new Error(data.detail || '요청 실패');
+  return data;
+}
+
+function toISO(localValue) {
+  if (!localValue) return null;
+  return new Date(localValue).toISOString();
+}
+
+function fmt(iso) {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString('ko-KR');
+}
+
+async function createRoom() {
+  const name = document.getElementById('newRoomName').value.trim();
+  if (!name) return;
+  try {
+    await api('/api/admin/rooms', {method:'POST', body:JSON.stringify({name})});
+    document.getElementById('newRoomName').value='';
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function renameRoom(id, current) {
+  const name = prompt('새 녹음실 이름', current);
+  if (!name || name === current) return;
+  try {
+    await api('/api/admin/rooms/'+id, {method:'PATCH', body:JSON.stringify({name})});
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function togglePause(room) {
+  let reason = null;
+  if (!room.is_paused) reason = prompt('사용중지 사유 (선택)', '보수/점검');
+  try {
+    await api('/api/admin/rooms/'+room.id, {
+      method:'PATCH',
+      body:JSON.stringify({is_paused: !room.is_paused, pause_reason: reason})
+    });
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteRoom(id, name) {
+  if (!confirm(name+'을(를) 삭제하시겠습니까? 기존 예약 기록은 서버에 보존됩니다.')) return;
+  try {
+    await api('/api/admin/rooms/'+id, {method:'DELETE'});
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function createBlock() {
+  const room_id = Number(document.getElementById('blockRoom').value);
+  const start_at = toISO(document.getElementById('blockStart').value);
+  const end_at = toISO(document.getElementById('blockEnd').value);
+  const reason = document.getElementById('blockReason').value.trim() || null;
+  if (!room_id || !start_at || !end_at) return alert('녹음실/시작/종료 시간을 입력해 주세요.');
+  try {
+    await api('/api/admin/blocks', {method:'POST', body:JSON.stringify({room_id,start_at,end_at,reason})});
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteBlock(id) {
+  if (!confirm('예약불가 지정을 해제할까요?')) return;
+  try {
+    await api('/api/admin/blocks/'+id, {method:'DELETE'});
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function cancelReservation(id) {
+  const reason = prompt('취소 사유 (선택)', '');
+  if (reason === null) return;
+  try {
+    await api('/api/admin/reservations/'+id+'/cancel', {method:'POST', body:JSON.stringify({reason: reason || null})});
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function loadAll() {
+  try {
+    rooms = await api('/api/admin/rooms');
+    const roomMap = Object.fromEntries(rooms.map(r=>[r.id,r.name]));
+    document.getElementById('rooms').innerHTML = rooms.map(r=>`
+      <div class="room">
+        <div class="row" style="justify-content:space-between">
+          <div>
+            <strong>${escapeHtml(r.name)}</strong>
+            <div class="muted">${r.is_paused ? '일시 사용중지 · '+escapeHtml(r.pause_reason||'사유 없음') : '예약 가능'}</div>
+          </div>
+          <div class="row">
+            <button onclick='renameRoom(${r.id}, ${JSON.stringify(r.name)})'>수정</button>
+            <button onclick='togglePause(${JSON.stringify(r)})'>${r.is_paused?'사용재개':'일시중지'}</button>
+            <button class="danger" onclick='deleteRoom(${r.id}, ${JSON.stringify(r.name)})'>삭제</button>
+          </div>
+        </div>
+      </div>`).join('') || '<div class="muted">등록된 녹음실이 없습니다.</div>';
+
+    document.getElementById('blockRoom').innerHTML =
+      rooms.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+
+    const blocks = await api('/api/admin/blocks');
+    document.getElementById('blocks').innerHTML = blocks.slice(0,20).map(b=>`
+      <div class="room">
+        <strong>${escapeHtml(roomMap[b.room_id]||('녹음실 #'+b.room_id))}</strong>
+        <div class="muted">${fmt(b.start_at)} ~ ${fmt(b.end_at)} · ${escapeHtml(b.reason||'사유 없음')}</div>
+        <div class="row"><button class="danger" onclick='deleteBlock(${JSON.stringify(b.id)})'>해제</button></div>
+      </div>`).join('') || '<div class="muted">예약불가 지정이 없습니다.</div>';
+
+    const reservations = await api('/api/admin/reservations?include_cancelled=true');
+    document.getElementById('reservations').innerHTML = reservations.map(r=>`
+      <tr>
+        <td><span class="badge">${escapeHtml(r.status)}</span></td>
+        <td>${escapeHtml(roomMap[r.room_id]||('녹음실 #'+r.room_id))}</td>
+        <td>${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
+        <td>${escapeHtml(r.nickname)}</td>
+        <td>${escapeHtml(r.phone_last4)}</td>
+        <td>${r.status !== '취소됨' ? `<button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>` : ''}</td>
+      </tr>`).join('') || '<tr><td colspan="6" class="muted">예약이 없습니다.</td></tr>';
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+function escapeHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
+}
+
+loadAll();
+setInterval(loadAll, 30000);
+</script>
+</body>
+</html>

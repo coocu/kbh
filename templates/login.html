@@ -1,0 +1,29 @@
+\
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ academy_name }} 관리자</title>
+  <style>
+    :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo", sans-serif; }
+    body { margin:0; min-height:100vh; display:grid; place-items:center; background:Canvas; color:CanvasText; }
+    .card { width:min(420px, calc(100vw - 40px)); border:1px solid color-mix(in srgb, CanvasText 20%, transparent); border-radius:24px; padding:28px; box-shadow:0 16px 50px rgba(0,0,0,.12); }
+    h1 { margin:0 0 6px; font-size:28px; }
+    p { margin:0 0 24px; opacity:.7; }
+    input, button { width:100%; box-sizing:border-box; border-radius:14px; font-size:17px; padding:14px 16px; }
+    input { border:1px solid color-mix(in srgb, CanvasText 25%, transparent); background:Canvas; color:CanvasText; margin-bottom:12px; }
+    button { border:0; background:#0a84ff; color:white; font-weight:700; cursor:pointer; }
+    .hint { margin-top:14px; font-size:13px; opacity:.6; }
+  </style>
+</head>
+<body>
+  <form class="card" method="post" action="/admin/login">
+    <h1>{{ academy_name }}</h1>
+    <p>예약 서버 관리자</p>
+    <input name="password" type="password" autocomplete="current-password" placeholder="관리자 비밀번호" required autofocus>
+    <button type="submit">로그인</button>
+    <div class="hint">비밀번호는 서버 환경변수에서 관리됩니다.</div>
+  </form>
+</body>
+</html>

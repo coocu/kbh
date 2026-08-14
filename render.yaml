@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: kbh-reservation-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ACADEMY_NAME
+        value: 킴스보컬미디학원
+      - key: WEB_ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SERVER_URL
+        sync: false
+      - key: AUTH_SERVER_BEARER_TOKEN
+        sync: false
