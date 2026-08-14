@@ -74,7 +74,7 @@
         <input
           id="authorizedUserSearch"
           class="grow"
-          placeholder="이름 검색"
+          placeholder="이름 또는 전화번호 검색"
           autocomplete="off"
           oninput="renderAuthorizedUsers()"
         >
@@ -291,7 +291,8 @@ function renderAuthorizedUsers() {
 
   const users = keyword
     ? authorizedUserRows.filter(u =>
-        String(u.name || '').toLocaleLowerCase('ko-KR').includes(keyword)
+        String(u.name || '').toLocaleLowerCase('ko-KR').includes(keyword) ||
+        String(u.phone_last4 || '').includes(keyword)
       )
     : authorizedUserRows;
 
