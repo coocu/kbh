@@ -1,6 +1,7 @@
-\
-import os
 import httpx
+
+AUTH_URL = "https://poketserver.onrender.com/app/check"
+ALLOWED_KEYS = {"google", "test.kyh", "kim"}
 
 
 class AuthNotConfigured(RuntimeError):
@@ -9,28 +10,39 @@ class AuthNotConfigured(RuntimeError):
 
 async def verify_license_key(license_key: str) -> bool:
     """
-    Exact external auth-server protocol is intentionally NOT guessed.
+    PocketBlackbox(XCode)(3).zip의 인증 서버/프로토콜과 동일하게 확인한다.
 
-    Current behavior:
-    1) If DEV_LICENSE_KEY is configured, exact match is accepted for testing.
-    2) If AUTH_SERVER_URL is present, this function currently raises
-       AuthNotConfigured until the auth-server ZIP is supplied and its actual
-       request/response contract can be mapped safely.
+    POST https://poketserver.onrender.com/app/check
+    Content-Type: application/json
+    Body: {"code": "<인증키>"}
 
-    After receiving the existing auth-server ZIP, only this adapter needs to be
-    changed; reservation logic does not need to be rewritten.
+    2xx JSON 응답의 token 값이 비어 있지 않을 때만 성공.
+    사용자 요구에 따라 google / test.kyh / kim 세 키만 예약 앱에서 허용한다.
     """
-    dev_key = os.getenv("DEV_LICENSE_KEY", "")
-    if dev_key and license_key == dev_key:
-        return True
+    candidate = license_key.strip()
+    if candidate.lower() not in ALLOWED_KEYS:
+        return False
 
-    auth_server_url = os.getenv("AUTH_SERVER_URL", "").strip()
-    if not auth_server_url:
-        raise AuthNotConfigured(
-            "인증키 서버가 아직 연결되지 않았습니다. AUTH_SERVER_URL 또는 DEV_LICENSE_KEY가 필요합니다."
-        )
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                AUTH_URL,
+                json={"code": candidate},
+                headers={"Content-Type": "application/json"},
+            )
+    except httpx.HTTPError as exc:
+        raise AuthNotConfigured("포켓 블랙박스 인증 서버에 연결할 수 없습니다.") from exc
 
-    # Do not invent an endpoint or response schema.
-    raise AuthNotConfigured(
-        "AUTH_SERVER_URL은 설정되어 있지만 기존 인증키 서버의 실제 API 규격이 아직 연결되지 않았습니다."
-    )
+    if not (200 <= response.status_code <= 299):
+        raise AuthNotConfigured("포켓 블랙박스 인증 서버 응답을 확인할 수 없습니다.")
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise AuthNotConfigured("포켓 블랙박스 인증 서버 응답 형식이 올바르지 않습니다.") from exc
+
+    token = data.get("token")
+    if token is None:
+        return False
+
+    return bool(str(token).strip())
