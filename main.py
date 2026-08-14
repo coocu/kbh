@@ -474,14 +474,23 @@ def admin_change_password(
 ):
     require_admin(request)
     credential = get_admin_credential(db)
+
     if not verify_password(payload.current_password, credential.password_hash):
         raise HTTPException(status_code=401, detail="현재 관리자 비밀번호가 올바르지 않습니다.")
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=409, detail="새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.")
 
     credential.password_hash = hash_password(payload.new_password)
+    credential.updated_at = now_utc()
+    db.add(credential)
     db.commit()
-    return {"ok": True}
+    db.refresh(credential)
+
+    # DB에 실제 새 비밀번호가 반영됐는지 마지막으로 확인한다.
+    if not verify_password(payload.new_password, credential.password_hash):
+        raise HTTPException(status_code=500, detail="관리자 비밀번호 변경을 저장하지 못했습니다.")
+
+    return {"ok": True, "logout_required": True}
 
 
 @app.get("/api/admin/rooms")
