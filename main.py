@@ -1,3 +1,4 @@
+import hmac
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -26,17 +27,22 @@ from schemas import (
 )
 from security import (
     create_admin_app_token,
+    create_admin_recovery_token,
     create_admin_session,
     create_app_token,
     hash_password,
     require_admin,
     require_app_token,
+    verify_admin_recovery_token,
     verify_password,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 ACADEMY_NAME = os.getenv("ACADEMY_NAME", "킴스보컬미디학원")
+ADMIN_RECOVERY_NAME = os.getenv("ADMIN_RECOVERY_NAME", "").strip()
+ADMIN_RECOVERY_PHONE_LAST4 = os.getenv("ADMIN_RECOVERY_PHONE_LAST4", "").strip()
+ADMIN_RECOVERY_DEVELOPER_NAME = os.getenv("ADMIN_RECOVERY_DEVELOPER_NAME", "").strip()
 
 
 def now_utc() -> datetime:
@@ -192,12 +198,13 @@ def user_app_login(payload: UserLoginRequest, db: Session = Depends(get_db)):
 
 @app.post("/api/v1/auth/admin-login")
 def admin_app_login(payload: AdminLoginRequest, db: Session = Depends(get_db)):
-    if not verify_admin_password(db, payload.password):
+    credential = get_admin_credential(db)
+    if not verify_password(payload.password, credential.password_hash):
         raise HTTPException(status_code=401, detail="관리자 비밀번호가 올바르지 않습니다.")
 
     return {
         "academy_name": ACADEMY_NAME,
-        "access_token": create_admin_app_token(ACADEMY_NAME),
+        "access_token": create_admin_app_token(ACADEMY_NAME, credential.password_hash),
         "token_type": "bearer",
         "role": "admin",
         "name": None,
@@ -381,7 +388,11 @@ def admin_page(request: Request):
         return templates.TemplateResponse(
             request=request,
             name="login.html",
-            context={"academy_name": ACADEMY_NAME},
+            context={
+                "academy_name": ACADEMY_NAME,
+                "login_error": request.query_params.get("error") == "1",
+                "password_reset": request.query_params.get("reset") == "1",
+            },
         )
 
     return templates.TemplateResponse(
@@ -391,15 +402,139 @@ def admin_page(request: Request):
     )
 
 
+@app.get("/admin/forgot", response_class=HTMLResponse, include_in_schema=False)
+def admin_forgot_password_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="forgot_password.html",
+        context={
+            "academy_name": ACADEMY_NAME,
+            "error": request.query_params.get("error") == "1",
+            "not_configured": request.query_params.get("not_configured") == "1",
+        },
+    )
+
+
+@app.post("/admin/forgot/verify", include_in_schema=False)
+def admin_forgot_password_verify(
+    name: str = Form(...),
+    phone_last4: str = Form(...),
+    developer_name: str = Form(...),
+):
+    if not (
+        ADMIN_RECOVERY_NAME
+        and ADMIN_RECOVERY_PHONE_LAST4
+        and ADMIN_RECOVERY_DEVELOPER_NAME
+    ):
+        return RedirectResponse(url="/admin/forgot?not_configured=1", status_code=303)
+
+    supplied_name = name.strip()
+    supplied_phone = phone_last4.strip()
+    supplied_developer = developer_name.strip()
+
+    matched = (
+        hmac.compare_digest(
+            supplied_name.encode("utf-8"),
+            ADMIN_RECOVERY_NAME.encode("utf-8"),
+        )
+        and hmac.compare_digest(
+            supplied_phone.encode("utf-8"),
+            ADMIN_RECOVERY_PHONE_LAST4.encode("utf-8"),
+        )
+        and hmac.compare_digest(
+            supplied_developer.encode("utf-8"),
+            ADMIN_RECOVERY_DEVELOPER_NAME.encode("utf-8"),
+        )
+    )
+
+    if not matched:
+        return RedirectResponse(url="/admin/forgot?error=1", status_code=303)
+
+    response = RedirectResponse(url="/admin/reset-password", status_code=303)
+    response.set_cookie(
+        "kbh_admin_recovery",
+        create_admin_recovery_token(),
+        httponly=True,
+        secure=os.getenv("RENDER") == "true",
+        samesite="strict",
+        max_age=60 * 10,
+    )
+    return response
+
+
+@app.get("/admin/reset-password", response_class=HTMLResponse, include_in_schema=False)
+def admin_reset_password_page(request: Request):
+    token = request.cookies.get("kbh_admin_recovery", "")
+    if not token:
+        return RedirectResponse(url="/admin/forgot", status_code=303)
+
+    try:
+        verify_admin_recovery_token(token)
+    except HTTPException:
+        response = RedirectResponse(url="/admin/forgot?error=1", status_code=303)
+        response.delete_cookie("kbh_admin_recovery")
+        return response
+
+    return templates.TemplateResponse(
+        request=request,
+        name="reset_password.html",
+        context={
+            "academy_name": ACADEMY_NAME,
+            "error": request.query_params.get("error"),
+        },
+    )
+
+
+@app.post("/admin/reset-password", include_in_schema=False)
+def admin_reset_password(
+    request: Request,
+    new_password: str = Form(...),
+    new_password_confirm: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    token = request.cookies.get("kbh_admin_recovery", "")
+    if not token:
+        return RedirectResponse(url="/admin/forgot", status_code=303)
+
+    try:
+        verify_admin_recovery_token(token)
+    except HTTPException:
+        response = RedirectResponse(url="/admin/forgot?error=1", status_code=303)
+        response.delete_cookie("kbh_admin_recovery")
+        return response
+
+    if len(new_password) < 4:
+        return RedirectResponse(url="/admin/reset-password?error=short", status_code=303)
+    if new_password != new_password_confirm:
+        return RedirectResponse(url="/admin/reset-password?error=mismatch", status_code=303)
+
+    credential = get_admin_credential(db)
+    credential.password_hash = hash_password(new_password)
+    credential.updated_at = now_utc()
+    db.add(credential)
+    db.commit()
+
+    with SessionLocal() as verify_db:
+        saved = verify_db.get(AdminCredential, 1)
+        if saved is None or not verify_password(new_password, saved.password_hash):
+            return RedirectResponse(url="/admin/reset-password?error=save", status_code=303)
+
+    response = RedirectResponse(url="/admin?reset=1", status_code=303)
+    response.delete_cookie("kbh_admin_recovery")
+    response.delete_cookie("kbh_admin")
+    return response
+
+
 @app.post("/admin/login", include_in_schema=False)
 def admin_login(password: str = Form(...), db: Session = Depends(get_db)):
-    if not verify_admin_password(db, password):
+    credential = get_admin_credential(db)
+    if not verify_password(password, credential.password_hash):
         return RedirectResponse(url="/admin?error=1", status_code=303)
 
     response = RedirectResponse(url="/admin", status_code=303)
     response.set_cookie(
         "kbh_admin",
-        create_admin_session(),
+        create_admin_session(credential.password_hash),
         httponly=True,
         secure=os.getenv("RENDER") == "true",
         samesite="strict",
@@ -409,12 +544,13 @@ def admin_login(password: str = Form(...), db: Session = Depends(get_db)):
 
 
 @app.get("/admin/app-login", include_in_schema=False)
-def admin_app_web_login(request: Request):
+def admin_app_web_login(request: Request, db: Session = Depends(get_db)):
     require_admin(request)
+    credential = get_admin_credential(db)
     response = RedirectResponse(url="/admin", status_code=303)
     response.set_cookie(
         "kbh_admin",
-        create_admin_session(),
+        create_admin_session(credential.password_hash),
         httponly=True,
         secure=os.getenv("RENDER") == "true",
         samesite="strict",
@@ -476,7 +612,8 @@ def admin_change_password(
     credential = get_admin_credential(db)
 
     if not verify_password(payload.current_password, credential.password_hash):
-        raise HTTPException(status_code=401, detail="현재 관리자 비밀번호가 올바르지 않습니다.")
+        # 현재 비밀번호 불일치는 "로그인 세션 만료"가 아니므로 401을 쓰지 않는다.
+        raise HTTPException(status_code=400, detail="현재 관리자 비밀번호가 올바르지 않습니다.")
     if payload.current_password == payload.new_password:
         raise HTTPException(status_code=409, detail="새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.")
 
@@ -484,12 +621,15 @@ def admin_change_password(
     credential.updated_at = now_utc()
     db.add(credential)
     db.commit()
-    db.refresh(credential)
 
-    # DB에 실제 새 비밀번호가 반영됐는지 마지막으로 확인한다.
-    if not verify_password(payload.new_password, credential.password_hash):
-        raise HTTPException(status_code=500, detail="관리자 비밀번호 변경을 저장하지 못했습니다.")
+    # 같은 SQLAlchemy 객체가 아니라 완전히 새 DB 세션으로 다시 읽어서
+    # PostgreSQL에 실제로 저장됐는지 확인한다.
+    with SessionLocal() as verify_db:
+        saved = verify_db.get(AdminCredential, 1)
+        if saved is None or not verify_password(payload.new_password, saved.password_hash):
+            raise HTTPException(status_code=500, detail="관리자 비밀번호 변경을 저장하지 못했습니다.")
 
+    # password hash가 바뀌었으므로 기존 웹 세션/앱 관리자 토큰은 이후 요청부터 자동 무효화된다.
     return {"ok": True, "logout_required": True}
 
 

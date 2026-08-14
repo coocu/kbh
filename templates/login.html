@@ -5,61 +5,36 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{ academy_name }} 관리자</title>
   <style>
-    :root {
-      color-scheme: light dark;
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Apple SD Gothic Neo", sans-serif;
-    }
-    html, body {
-      width: 100%;
-      min-height: 100%;
-      margin: 0;
-    }
-    body {
-      min-height: 100vh;
-      min-height: 100dvh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: Canvas;
-      color: CanvasText;
-    }
-    .card {
-      width: min(420px, calc(100vw - 40px));
-      border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
-      border-radius: 24px;
-      padding: 28px;
-      box-shadow: 0 16px 50px rgba(0,0,0,.12);
-    }
-    h1 { margin: 0 0 6px; font-size: 28px; }
-    p { margin: 0 0 24px; opacity: .7; }
-    input, button {
-      width: 100%;
-      box-sizing: border-box;
-      border-radius: 14px;
-      font-size: 17px;
-      padding: 14px 16px;
-    }
-    input {
-      border: 1px solid color-mix(in srgb, CanvasText 25%, transparent);
-      background: Canvas;
-      color: CanvasText;
-      margin-bottom: 12px;
-    }
-    button {
-      border: 0;
-      background: #0a84ff;
-      color: white;
-      font-weight: 700;
-      cursor: pointer;
-    }
+    :root { color-scheme:light dark; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Apple SD Gothic Neo",sans-serif; }
+    html,body { width:100%; min-height:100%; margin:0; }
+    body { min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; background:Canvas; color:CanvasText; }
+    .card { width:min(420px,calc(100vw - 40px)); border:1px solid color-mix(in srgb,CanvasText 20%,transparent); border-radius:24px; padding:28px; box-shadow:0 16px 50px rgba(0,0,0,.12); }
+    h1 { margin:0 0 6px; font-size:28px; }
+    p { margin:0 0 24px; opacity:.7; }
+    input,button { width:100%; box-sizing:border-box; border-radius:14px; font-size:17px; padding:14px 16px; }
+    input { border:1px solid color-mix(in srgb,CanvasText 25%,transparent); background:Canvas; color:CanvasText; margin-bottom:12px; }
+    button { border:0; background:#0a84ff; color:#fff; font-weight:700; cursor:pointer; }
+    .forgot { display:block; text-align:center; margin-top:16px; color:#0a84ff; text-decoration:none; font-size:14px; }
+    .notice { border-radius:12px; padding:10px 12px; margin-bottom:12px; font-size:13px; }
+    .error { background:color-mix(in srgb,#ff453a 15%,transparent); color:#ff6961; }
+    .success { background:color-mix(in srgb,#30d158 15%,transparent); color:#30d158; }
   </style>
 </head>
 <body>
   <form class="card" method="post" action="/admin/login">
     <h1>{{ academy_name }}</h1>
     <p>예약 서버 관리자</p>
+
+    {% if password_reset %}
+      <div class="notice success">비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.</div>
+    {% endif %}
+    {% if login_error %}
+      <div class="notice error">관리자 비밀번호를 확인해 주세요.</div>
+    {% endif %}
+
     <input name="password" type="password" autocomplete="current-password" placeholder="관리자 비밀번호" required autofocus>
     <button type="submit">로그인</button>
+    <a class="forgot" href="/admin/forgot">비밀번호를 잊으셨나요?</a>
   </form>
 </body>
 </html>
