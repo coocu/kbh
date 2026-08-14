@@ -359,7 +359,21 @@ def admin_list_rooms(request: Request, db: Session = Depends(get_db)):
 @app.post("/api/admin/rooms", status_code=201)
 def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depends(get_db)):
     require_admin(request)
-    room = Room(name=payload.name.strip())
+    name = payload.name.strip()
+
+    existing = db.scalar(select(Room).where(Room.name == name))
+    if existing is not None:
+        if existing.is_deleted:
+            existing.is_deleted = False
+            existing.is_paused = False
+            existing.pause_reason = None
+            db.commit()
+            db.refresh(existing)
+            return room_dict(existing)
+
+        raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
+
+    room = Room(name=name)
     db.add(room)
     try:
         db.commit()
