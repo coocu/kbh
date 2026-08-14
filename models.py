@@ -1,8 +1,7 @@
-\
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from db import Base
@@ -54,3 +53,21 @@ class UnavailableBlock(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     room: Mapped[Room] = relationship(back_populates="blocks")
+
+
+class AuthorizedUser(Base):
+    __tablename__ = "authorized_users"
+    __table_args__ = (UniqueConstraint("name", "phone_last4", name="uq_authorized_user_identity"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    phone_last4: Mapped[str] = mapped_column(String(4), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class AdminCredential(Base):
+    __tablename__ = "admin_credentials"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    password_hash: Mapped[str] = mapped_column(String(300), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)

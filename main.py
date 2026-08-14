@@ -1,4 +1,3 @@
-\
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -8,15 +7,32 @@ from dateutil.relativedelta import relativedelta
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import and_, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from auth_adapter import AuthNotConfigured, verify_license_key
 from db import Base, SessionLocal, engine
-from models import Reservation, Room, UnavailableBlock
-from schemas import BlockCreate, CancelRequest, LicenseRequest, ReservationCreate, RoomCreate, RoomUpdate
-from security import create_admin_session, create_app_token, require_admin, require_app_token
+from models import AdminCredential, AuthorizedUser, Reservation, Room, UnavailableBlock
+from schemas import (
+    AdminLoginRequest,
+    AuthorizedUserCreate,
+    BlockCreate,
+    CancelRequest,
+    PasswordChangeRequest,
+    ReservationCreate,
+    RoomCreate,
+    RoomUpdate,
+    UserLoginRequest,
+)
+from security import (
+    create_admin_app_token,
+    create_admin_session,
+    create_app_token,
+    hash_password,
+    require_admin,
+    require_app_token,
+    verify_password,
+)
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -31,13 +47,21 @@ def normalize_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def _aware_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def reservation_status(r: Reservation, now: datetime | None = None) -> str:
-    now = now or now_utc()
+    now = _aware_utc(now or now_utc())
+    start_at = _aware_utc(r.start_at)
+    end_at = _aware_utc(r.end_at)
     if r.cancelled_at is not None:
         return "취소됨"
-    if now < r.start_at:
+    if now < start_at:
         return "예약중"
-    if r.start_at <= now < r.end_at:
+    if start_at <= now < end_at:
         return "사용중"
     return "사용종료"
 
@@ -72,6 +96,15 @@ def room_dict(room: Room) -> dict:
     }
 
 
+def authorized_user_dict(row: AuthorizedUser) -> dict:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "phone_last4": row.phone_last4,
+        "created_at": row.created_at,
+    }
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -80,16 +113,34 @@ def get_db():
         db.close()
 
 
+def get_admin_credential(db: Session) -> AdminCredential:
+    credential = db.get(AdminCredential, 1)
+    if credential is None:
+        raise HTTPException(status_code=503, detail="관리자 비밀번호가 초기화되지 않았습니다.")
+    return credential
+
+
+def verify_admin_password(db: Session, password: str) -> bool:
+    credential = get_admin_credential(db)
+    return verify_password(password, credential.password_hash)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # For first deployment/prototype. Later we can switch to Alembic migrations.
     Base.metadata.create_all(bind=engine)
+
+    with SessionLocal() as db:
+        credential = db.get(AdminCredential, 1)
+        if credential is None:
+            initial_password = os.getenv("WEB_ADMIN_PASSWORD", "").strip()
+            if not initial_password:
+                raise RuntimeError("Initial WEB_ADMIN_PASSWORD is required once to seed the admin password.")
+            db.add(AdminCredential(id=1, password_hash=hash_password(initial_password)))
+            db.commit()
 
     if os.getenv("RENDER") == "true":
         if not os.getenv("ADMIN_SESSION_SECRET"):
             raise RuntimeError("Render production requires ADMIN_SESSION_SECRET.")
-        if not os.getenv("WEB_ADMIN_PASSWORD"):
-            raise RuntimeError("Render production requires WEB_ADMIN_PASSWORD.")
         if os.getenv("DATABASE_URL", "").startswith("sqlite"):
             raise RuntimeError("Render production must use Postgres DATABASE_URL, not local SQLite.")
 
@@ -98,7 +149,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="킴스보컬미디학원 예약 서버",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -114,23 +165,43 @@ def root():
 
 
 # -----------------------------
-# App authentication
+# App authentication - local KBH server DB only
 # -----------------------------
 
-@app.post("/api/v1/auth/register")
-async def register_app(payload: LicenseRequest):
-    try:
-        verified = await verify_license_key(payload.license_key.strip())
-    except AuthNotConfigured as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-
-    if not verified:
-        raise HTTPException(status_code=401, detail="유효하지 않은 인증키입니다.")
+@app.post("/api/v1/auth/login")
+def user_app_login(payload: UserLoginRequest, db: Session = Depends(get_db)):
+    name = payload.name.strip()
+    row = db.scalar(
+        select(AuthorizedUser).where(
+            AuthorizedUser.name == name,
+            AuthorizedUser.phone_last4 == payload.phone_last4,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=401, detail="등록된 이름과 전화번호 끝 4자리를 확인해 주세요.")
 
     return {
         "academy_name": ACADEMY_NAME,
-        "access_token": create_app_token(ACADEMY_NAME),
+        "access_token": create_app_token(ACADEMY_NAME, row.name, row.phone_last4),
         "token_type": "bearer",
+        "role": "user",
+        "name": row.name,
+        "phone_last4": row.phone_last4,
+    }
+
+
+@app.post("/api/v1/auth/admin-login")
+def admin_app_login(payload: AdminLoginRequest, db: Session = Depends(get_db)):
+    if not verify_admin_password(db, payload.password):
+        raise HTTPException(status_code=401, detail="관리자 비밀번호가 올바르지 않습니다.")
+
+    return {
+        "academy_name": ACADEMY_NAME,
+        "access_token": create_admin_app_token(ACADEMY_NAME),
+        "token_type": "bearer",
+        "role": "admin",
+        "name": None,
+        "phone_last4": None,
     }
 
 
@@ -140,7 +211,7 @@ async def register_app(payload: LicenseRequest):
 
 @app.get("/api/v1/bootstrap")
 def bootstrap(request: Request, db: Session = Depends(get_db)):
-    require_app_token(request)
+    auth = require_app_token(request)
     rooms = db.scalars(
         select(Room).where(Room.is_deleted.is_(False)).order_by(Room.name.asc())
     ).all()
@@ -148,6 +219,8 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
         "academy_name": ACADEMY_NAME,
         "server_time": now_utc(),
         "booking_limit_months": 3,
+        "user_name": auth.get("name"),
+        "phone_last4": auth.get("phone_last4"),
         "rooms": [room_dict(r) for r in rooms],
     }
 
@@ -226,7 +299,7 @@ def create_reservation(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    require_app_token(request)
+    auth = require_app_token(request)
 
     start = normalize_utc(payload.start_at)
     end = normalize_utc(payload.end_at)
@@ -275,8 +348,8 @@ def create_reservation(
 
         reservation = Reservation(
             room_id=room.id,
-            nickname=payload.nickname.strip(),
-            phone_last4=payload.phone_last4,
+            nickname=auth.get("name") or payload.nickname.strip(),
+            phone_last4=auth.get("phone_last4") or payload.phone_last4,
             start_at=start,
             end_at=end,
         )
@@ -319,11 +392,25 @@ def admin_page(request: Request):
 
 
 @app.post("/admin/login", include_in_schema=False)
-def admin_login(password: str = Form(...)):
-    expected = os.getenv("WEB_ADMIN_PASSWORD", "")
-    if not expected or password != expected:
+def admin_login(password: str = Form(...), db: Session = Depends(get_db)):
+    if not verify_admin_password(db, password):
         return RedirectResponse(url="/admin?error=1", status_code=303)
 
+    response = RedirectResponse(url="/admin", status_code=303)
+    response.set_cookie(
+        "kbh_admin",
+        create_admin_session(),
+        httponly=True,
+        secure=os.getenv("RENDER") == "true",
+        samesite="strict",
+        max_age=60 * 60 * 12,
+    )
+    return response
+
+
+@app.get("/admin/app-login", include_in_schema=False)
+def admin_app_web_login(request: Request):
+    require_admin(request)
     response = RedirectResponse(url="/admin", status_code=303)
     response.set_cookie(
         "kbh_admin",
@@ -344,8 +431,58 @@ def admin_logout():
 
 
 # -----------------------------
-# Admin API
+# Admin API - web cookie OR admin app bearer token
 # -----------------------------
+
+@app.get("/api/admin/users")
+def admin_list_users(request: Request, db: Session = Depends(get_db)):
+    require_admin(request)
+    rows = db.scalars(select(AuthorizedUser).order_by(AuthorizedUser.name.asc(), AuthorizedUser.id.asc())).all()
+    return [authorized_user_dict(row) for row in rows]
+
+
+@app.post("/api/admin/users", status_code=201)
+def admin_create_user(payload: AuthorizedUserCreate, request: Request, db: Session = Depends(get_db)):
+    require_admin(request)
+    row = AuthorizedUser(name=payload.name.strip(), phone_last4=payload.phone_last4)
+    db.add(row)
+    try:
+        db.commit()
+        db.refresh(row)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 같은 이름과 전화번호 끝 4자리가 등록되어 있습니다.")
+    return authorized_user_dict(row)
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
+    require_admin(request)
+    row = db.get(AuthorizedUser, user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="등록 사용자를 찾을 수 없습니다.")
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/admin/password")
+def admin_change_password(
+    payload: PasswordChangeRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    require_admin(request)
+    credential = get_admin_credential(db)
+    if not verify_password(payload.current_password, credential.password_hash):
+        raise HTTPException(status_code=401, detail="현재 관리자 비밀번호가 올바르지 않습니다.")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=409, detail="새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.")
+
+    credential.password_hash = hash_password(payload.new_password)
+    db.commit()
+    return {"ok": True}
+
 
 @app.get("/api/admin/rooms")
 def admin_list_rooms(request: Request, db: Session = Depends(get_db)):
@@ -370,7 +507,6 @@ def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depen
             db.commit()
             db.refresh(existing)
             return room_dict(existing)
-
         raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
 
     room = Room(name=name)

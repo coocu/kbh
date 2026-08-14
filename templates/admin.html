@@ -26,6 +26,8 @@
     th, td { text-align:left; padding:10px 8px; border-bottom:1px solid color-mix(in srgb, CanvasText 10%, transparent); vertical-align:top; }
     .badge { display:inline-block; padding:3px 8px; border-radius:999px; background:color-mix(in srgb, #0a84ff 18%, transparent); }
     .scroll { overflow:auto; }
+    .compact-list { max-height:260px; overflow:auto; }
+    .grow { flex:1; min-width:140px; }
   </style>
 </head>
 <body>
@@ -57,6 +59,28 @@
         <button class="primary" onclick="createBlock()">지정</button>
       </div>
       <div id="blocks"></div>
+    </section>
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>원생/강사 로그인 관리</h2>
+      <div class="row">
+        <input id="userName" class="grow" placeholder="이름">
+        <input id="userPhone4" inputmode="numeric" maxlength="4" placeholder="전화 끝 4자리" style="width:150px">
+        <button class="primary" onclick="createAuthorizedUser()">등록</button>
+      </div>
+      <div class="muted">여기에 등록된 이름 + 전화번호 끝 4자리로 iPhone 앱에 로그인할 수 있습니다.</div>
+      <div id="authorizedUsers" class="compact-list"></div>
+    </section>
+
+    <section class="card">
+      <h2>관리자 비밀번호 변경</h2>
+      <div class="row"><input id="currentAdminPassword" type="password" class="grow" placeholder="현재 비밀번호"></div>
+      <div class="row"><input id="newAdminPassword" type="password" class="grow" placeholder="새 비밀번호"></div>
+      <div class="row"><input id="newAdminPasswordConfirm" type="password" class="grow" placeholder="새 비밀번호 확인"></div>
+      <button class="primary" onclick="changeAdminPassword()">비밀번호 변경</button>
+      <div class="muted" style="margin-top:10px">변경 후 웹과 iPhone 앱 관리자 로그인에 같은 새 비밀번호를 사용합니다.</div>
     </section>
   </div>
 
@@ -215,8 +239,57 @@ async function deleteCancelledReservation(id) {
   } catch(e) { alert(e.message); }
 }
 
+async function createAuthorizedUser() {
+  const name = document.getElementById('userName').value.trim();
+  const phone_last4 = document.getElementById('userPhone4').value.trim();
+  if (!name) return alert('이름을 입력해 주세요.');
+  if (!/^\d{4}$/.test(phone_last4)) return alert('전화번호 끝 4자리는 숫자 4자리로 입력해 주세요.');
+  try {
+    await api('/api/admin/users', {method:'POST', body:JSON.stringify({name, phone_last4})});
+    document.getElementById('userName').value='';
+    document.getElementById('userPhone4').value='';
+    await loadAuthorizedUsers();
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteAuthorizedUser(id, name) {
+  if (!confirm(name+'의 앱 로그인을 해제하시겠습니까?')) return;
+  try {
+    await api('/api/admin/users/'+id, {method:'DELETE'});
+    await loadAuthorizedUsers();
+  } catch(e) { alert(e.message); }
+}
+
+async function loadAuthorizedUsers() {
+  const users = await api('/api/admin/users');
+  document.getElementById('authorizedUsers').innerHTML = users.map(u=>`
+    <div class="room">
+      <div class="row" style="justify-content:space-between">
+        <div><strong>${escapeHtml(u.name)}</strong><div class="muted">전화 끝 4자리 ${escapeHtml(u.phone_last4)}</div></div>
+        <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
+      </div>
+    </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 원생/강사가 없습니다.</div>';
+}
+
+async function changeAdminPassword() {
+  const current_password = document.getElementById('currentAdminPassword').value;
+  const new_password = document.getElementById('newAdminPassword').value;
+  const confirm = document.getElementById('newAdminPasswordConfirm').value;
+  if (!current_password || !new_password) return alert('현재 비밀번호와 새 비밀번호를 입력해 주세요.');
+  if (new_password.length < 4) return alert('새 비밀번호는 4자 이상 입력해 주세요.');
+  if (new_password !== confirm) return alert('새 비밀번호 확인이 일치하지 않습니다.');
+  try {
+    await api('/api/admin/password', {method:'POST', body:JSON.stringify({current_password,new_password})});
+    document.getElementById('currentAdminPassword').value='';
+    document.getElementById('newAdminPassword').value='';
+    document.getElementById('newAdminPasswordConfirm').value='';
+    alert('관리자 비밀번호가 변경되었습니다. 다음 로그인부터 새 비밀번호를 사용해 주세요.');
+  } catch(e) { alert(e.message); }
+}
+
 async function loadAll() {
   try {
+    await loadAuthorizedUsers();
     rooms = await api('/api/admin/rooms');
     const roomMap = Object.fromEntries(rooms.map(r=>[r.id,r.name]));
     document.getElementById('rooms').innerHTML = rooms.map(r=>`
