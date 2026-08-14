@@ -40,9 +40,9 @@ from security import (
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 ACADEMY_NAME = os.getenv("ACADEMY_NAME", "킴스보컬미디학원")
-ADMIN_RECOVERY_NAME = os.getenv("ADMIN_RECOVERY_NAME", "").strip()
-ADMIN_RECOVERY_PHONE_LAST4 = os.getenv("ADMIN_RECOVERY_PHONE_LAST4", "").strip()
-ADMIN_RECOVERY_DEVELOPER_NAME = os.getenv("ADMIN_RECOVERY_DEVELOPER_NAME", "").strip()
+ADMIN_RECOVERY_NAME = os.getenv("ADMIN_RECOVERY_NAME", "김병현").strip()
+ADMIN_RECOVERY_PHONE_LAST4 = os.getenv("ADMIN_RECOVERY_PHONE_LAST4", "0667").strip()
+ADMIN_RECOVERY_DEVELOPER_NAME = os.getenv("ADMIN_RECOVERY_DEVELOPER_NAME", "코드노트").strip()
 
 
 def now_utc() -> datetime:
