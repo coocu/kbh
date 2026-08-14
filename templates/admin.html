@@ -70,7 +70,15 @@
         <input id="userPhone4" inputmode="numeric" maxlength="4" placeholder="전화 끝 4자리" style="width:150px">
         <button class="primary" onclick="createAuthorizedUser()">등록</button>
       </div>
-      <div class="muted">여기에 등록된 이름 + 전화번호 끝 4자리로 iPhone 앱에 로그인할 수 있습니다.</div>
+      <div class="row" style="margin-top:12px">
+        <input
+          id="authorizedUserSearch"
+          class="grow"
+          placeholder="이름 검색"
+          autocomplete="off"
+          oninput="renderAuthorizedUsers()"
+        >
+      </div>
       <div id="authorizedUsers" class="compact-list"></div>
     </section>
 
@@ -80,7 +88,6 @@
       <div class="row"><input id="newAdminPassword" type="password" class="grow" placeholder="새 비밀번호"></div>
       <div class="row"><input id="newAdminPasswordConfirm" type="password" class="grow" placeholder="새 비밀번호 확인"></div>
       <button class="primary" onclick="changeAdminPassword()">비밀번호 변경</button>
-      <div class="muted" style="margin-top:10px">변경 후 웹과 iPhone 앱 관리자 로그인에 같은 새 비밀번호를 사용합니다.</div>
     </section>
   </div>
 
@@ -107,6 +114,7 @@
 let rooms = [];
 let reservationRows = [];
 let reservationRoomMap = {};
+let authorizedUserRows = [];
 
 async function api(url, options={}) {
   const res = await fetch(url, {
@@ -277,15 +285,32 @@ async function deleteAuthorizedUser(id, name) {
   } catch(e) { alert(e.message); }
 }
 
-async function loadAuthorizedUsers() {
-  const users = await api('/api/admin/users');
+function renderAuthorizedUsers() {
+  const searchInput = document.getElementById('authorizedUserSearch');
+  const keyword = (searchInput?.value || '').trim().toLocaleLowerCase('ko-KR');
+
+  const users = keyword
+    ? authorizedUserRows.filter(u =>
+        String(u.name || '').toLocaleLowerCase('ko-KR').includes(keyword)
+      )
+    : authorizedUserRows;
+
+  const emptyMessage = keyword
+    ? '검색 결과가 없습니다.'
+    : '등록된 원생/강사가 없습니다.';
+
   document.getElementById('authorizedUsers').innerHTML = users.map(u=>`
     <div class="room">
       <div class="row" style="justify-content:space-between">
         <div><strong>${escapeHtml(u.name)}</strong><div class="muted">전화 끝 4자리 ${escapeHtml(u.phone_last4)}</div></div>
         <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
       </div>
-    </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 원생/강사가 없습니다.</div>';
+    </div>`).join('') || `<div class="muted" style="margin-top:12px">${emptyMessage}</div>`;
+}
+
+async function loadAuthorizedUsers() {
+  authorizedUserRows = await api('/api/admin/users');
+  renderAuthorizedUsers();
 }
 
 async function changeAdminPassword() {
