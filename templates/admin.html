@@ -60,6 +60,30 @@
     .tab-panel { display:none; }
     .tab-panel.active { display:block; }
 
+    .hour-grid {
+      display:grid;
+      grid-template-columns:repeat(6,minmax(0,1fr));
+      gap:8px;
+      margin:10px 0;
+    }
+    .hour-button {
+      width:100%;
+      padding:10px 4px;
+      font-weight:700;
+      font-size:14px;
+    }
+    .hour-button.selected {
+      background:#0a84ff;
+      color:#fff;
+      border-color:#0a84ff;
+    }
+    .hour-actions {
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin:8px 0;
+    }
+
     @media (max-width:600px) {
       header { padding:14px 16px; }
       header h1 { font-size:17px; }
@@ -67,6 +91,8 @@
       .admin-tabs-inner { gap:6px; }
       .tab-button { font-size:12px; padding:9px 3px; }
       .wrap { padding:14px; gap:14px; }
+      .hour-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+      .hour-button { font-size:13px; padding:9px 2px; }
     }
   </style>
 </head>
@@ -101,12 +127,21 @@
         <h2>예약불가 지정</h2>
         <div class="row"><select id="blockRoom" style="flex:1"></select></div>
         <div class="row">
-          <input id="blockStart" type="datetime-local" style="flex:1">
-          <input id="blockEnd" type="datetime-local" style="flex:1">
+          <label for="blockDate" class="muted">날짜</label>
+          <input id="blockDate" type="date" style="flex:1" onchange="clearBlockHours()">
         </div>
+
+        <div class="muted">00시부터 24시까지 1시간 단위로 선택합니다. 23시 선택은 23:00 ~ 24:00입니다.</div>
+        <div id="blockHourButtons" class="hour-grid"></div>
+
+        <div class="hour-actions">
+          <button type="button" onclick="selectAllBlockHours()">전체 선택</button>
+          <button type="button" onclick="clearBlockHours()">선택 해제</button>
+        </div>
+
         <div class="row">
           <input id="blockReason" placeholder="사유 (선택)" style="flex:1">
-          <button class="primary" onclick="createBlock()">지정</button>
+          <button class="primary" onclick="createBlock()">선택시간 지정</button>
         </div>
         <div id="blocks"></div>
       </section>
@@ -182,6 +217,7 @@ let rooms = [];
 let reservationRows = [];
 let reservationRoomMap = {};
 let authorizedUserRows = [];
+let selectedBlockHours = new Set();
 
 function switchAdminTab(tabName) {
   document.querySelectorAll('.tab-panel').forEach(panel => {
@@ -262,6 +298,80 @@ function clearReservationDate() {
   renderReservations();
 }
 
+function localTodayKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function ensureBlockDate() {
+  const input = document.getElementById('blockDate');
+  if (input && !input.value) input.value = localTodayKey();
+}
+
+function renderBlockHourButtons() {
+  const container = document.getElementById('blockHourButtons');
+  if (!container) return;
+
+  container.innerHTML = Array.from({length:24}, (_, hour) => {
+    const selected = selectedBlockHours.has(hour);
+    return `<button
+      type="button"
+      class="hour-button ${selected ? 'selected' : ''}"
+      onclick="toggleBlockHour(${hour})"
+    >${String(hour).padStart(2, '0')}시</button>`;
+  }).join('');
+}
+
+function toggleBlockHour(hour) {
+  if (selectedBlockHours.has(hour)) {
+    selectedBlockHours.delete(hour);
+  } else {
+    selectedBlockHours.add(hour);
+  }
+  renderBlockHourButtons();
+}
+
+function selectAllBlockHours() {
+  selectedBlockHours = new Set(Array.from({length:24}, (_, hour) => hour));
+  renderBlockHourButtons();
+}
+
+function clearBlockHours() {
+  selectedBlockHours.clear();
+  renderBlockHourButtons();
+}
+
+function selectedBlockHourGroups() {
+  const sorted = Array.from(selectedBlockHours).sort((a,b)=>a-b);
+  if (!sorted.length) return [];
+
+  const groups = [];
+  let start = sorted[0];
+  let previous = sorted[0];
+
+  for (const hour of sorted.slice(1)) {
+    if (hour === previous + 1) {
+      previous = hour;
+    } else {
+      groups.push({startHour:start, endHour:previous + 1});
+      start = hour;
+      previous = hour;
+    }
+  }
+
+  groups.push({startHour:start, endHour:previous + 1});
+  return groups;
+}
+
+function blockHourISO(dateValue, hour) {
+  const [y,m,d] = dateValue.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(y, m - 1, d, hour, 0, 0, 0).toISOString();
+}
+
 function renderReservations() {
   const selectedDate = document.getElementById('reservationDate').value;
   const searchInput = document.getElementById('reservationSearch');
@@ -334,14 +444,41 @@ async function deleteRoom(id, name) {
 
 async function createBlock() {
   const room_id = Number(document.getElementById('blockRoom').value);
-  const start_at = toISO(document.getElementById('blockStart').value);
-  const end_at = toISO(document.getElementById('blockEnd').value);
+  const dateValue = document.getElementById('blockDate').value;
   const reason = document.getElementById('blockReason').value.trim() || null;
-  if (!room_id || !start_at || !end_at) return alert('녹음실/시작/종료 시간을 입력해 주세요.');
+  const groups = selectedBlockHourGroups();
+
+  if (!room_id) return alert('녹음실을 선택해 주세요.');
+  if (!dateValue) return alert('날짜를 선택해 주세요.');
+  if (!groups.length) return alert('예약불가 시간을 한 개 이상 선택해 주세요.');
+
+  let completed = 0;
+
   try {
-    await api('/api/admin/blocks', {method:'POST', body:JSON.stringify({room_id,start_at,end_at,reason})});
+    for (const group of groups) {
+      const start_at = blockHourISO(dateValue, group.startHour);
+      const end_at = blockHourISO(dateValue, group.endHour);
+
+      await api('/api/admin/blocks', {
+        method:'POST',
+        body:JSON.stringify({room_id,start_at,end_at,reason})
+      });
+      completed += 1;
+    }
+
+    selectedBlockHours.clear();
+    document.getElementById('blockReason').value = '';
+    renderBlockHourButtons();
     await loadAll();
-  } catch(e) { alert(e.message); }
+  } catch(e) {
+    await loadAll();
+
+    if (completed > 0) {
+      alert('일부 시간은 지정되었지만 나머지 처리 중 오류가 발생했습니다. 예약불가 목록을 확인해 주세요.\n\n' + e.message);
+    } else {
+      alert(e.message);
+    }
+  }
 }
 
 async function deleteBlock(id) {
@@ -486,6 +623,8 @@ function escapeHtml(v) {
 }
 
 restoreAdminTab();
+ensureBlockDate();
+renderBlockHourButtons();
 loadAll();
 setInterval(loadAll, 5000);
 </script>
