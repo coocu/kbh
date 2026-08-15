@@ -131,11 +131,30 @@
     </div>
   </div>
 
+  <div id="academyActionModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="academyActionTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="academyActionTitle">학원관리</h2>
+        <button class="close" type="button" onclick="closeAcademyAction()">닫기</button>
+      </div>
+
+      <div id="academyActionError" class="notice error hidden"></div>
+      <p id="academyActionMessage" class="muted"></p>
+      <input id="academyActionNameInput" class="hidden" autocomplete="organization" placeholder="학원 이름">
+
+      <div style="display:flex; gap:10px; margin-top:14px;">
+        <button class="secondary" type="button" onclick="closeAcademyAction()">취소</button>
+        <button id="academyActionConfirmButton" class="primary" type="button" onclick="confirmAcademyAction()">확인</button>
+      </div>
+    </div>
+  </div>
+
 <script>
 let registrationToken = null;
 let deletionToken = null;
 let managedAcademies = [];
 let managementActiveState = true;
+let pendingAcademyAction = null;
 
 function showRegisterError(message) {
   const box = document.getElementById('registerError');
@@ -304,9 +323,9 @@ function renderManagedAcademies() {
         <div class="academy-status">${academy.is_active ? '활성화' : '비활성화'}</div>
       </div>
       <div class="academy-delete-actions">
-        <button type="button" onclick='renameAcademy(${JSON.stringify(academy.id)}, ${JSON.stringify(academy.name)})'>수정</button>
-        <button type="button" onclick='changeAcademyStatus(${JSON.stringify(academy.id)}, ${academy.is_active ? 'false' : 'true'}, ${JSON.stringify(academy.name)})'>${academy.is_active ? '비활성화' : '활성화'}</button>
-        <button class="danger" type="button" onclick='deleteAcademy(${JSON.stringify(academy.id)}, ${JSON.stringify(academy.name)})'>삭제</button>
+        <button type="button" data-academy-action="rename" data-academy-id="${academy.id}" data-academy-name="${escapeHtml(academy.name)}">수정</button>
+        <button type="button" data-academy-action="status" data-academy-id="${academy.id}" data-academy-name="${escapeHtml(academy.name)}" data-active="${academy.is_active ? 'false' : 'true'}">${academy.is_active ? '비활성화' : '활성화'}</button>
+        <button class="danger" type="button" data-academy-action="delete" data-academy-id="${academy.id}" data-academy-name="${escapeHtml(academy.name)}">삭제</button>
       </div>
     </div>`).join('') : '<p class="muted">검색 결과가 없습니다.</p>';
 }
@@ -342,61 +361,137 @@ async function verifyDeleteKey() {
   }
 }
 
-async function renameAcademy(academyId, academyName) {
-  if (!deletionToken) return showDeleteAcademyError('인증키를 다시 확인해 주세요.');
-  const value = prompt('변경할 학원 이름을 입력해 주세요.', academyName);
-  if (value === null) return;
-  const newName = value.trim();
-  if (!newName) return showDeleteAcademyError('학원 이름을 입력해 주세요.');
-  if (newName === academyName) return;
 
-  showDeleteAcademyError('');
-  try {
-    await jsonPost('/api/v1/academy-management/update', {
-      registration_token: deletionToken,
-      academy_id: academyId,
-      academy_name: newName
-    });
-    await loadDeleteAcademies();
-  } catch (e) {
-    showDeleteAcademyError(e.message);
+function showAcademyActionError(message) {
+  const box = document.getElementById('academyActionError');
+  box.textContent = message || '';
+  box.classList.toggle('hidden', !message);
+}
+
+function openAcademyAction(action, academyId, academyName, isActive = null) {
+  if (!deletionToken) {
+    showDeleteAcademyError('인증키를 다시 확인해 주세요.');
+    return;
+  }
+
+  pendingAcademyAction = {
+    action,
+    academyId: Number(academyId),
+    academyName: String(academyName || ''),
+    isActive
+  };
+
+  const title = document.getElementById('academyActionTitle');
+  const message = document.getElementById('academyActionMessage');
+  const input = document.getElementById('academyActionNameInput');
+  const confirmButton = document.getElementById('academyActionConfirmButton');
+
+  showAcademyActionError('');
+  input.classList.add('hidden');
+  input.value = '';
+
+  if (action === 'rename') {
+    title.textContent = '학원 이름 수정';
+    message.textContent = '변경할 학원 이름을 입력해 주세요.';
+    input.value = pendingAcademyAction.academyName;
+    input.classList.remove('hidden');
+    confirmButton.textContent = '수정';
+    confirmButton.classList.remove('danger');
+  } else if (action === 'status') {
+    const actionName = isActive ? '활성화' : '비활성화';
+    title.textContent = actionName;
+    message.textContent = `${pendingAcademyAction.academyName}을(를) ${actionName}하시겠습니까?`;
+    confirmButton.textContent = actionName;
+    confirmButton.classList.remove('danger');
+  } else if (action === 'delete') {
+    title.textContent = '학원 삭제';
+    message.textContent =
+      `${pendingAcademyAction.academyName}을(를) 삭제하시겠습니까?\n\n` +
+      '해당 학원의 녹음실, 원생/강사, 예약, 예약불가 시간, 관리자 정보가 모두 삭제되며 복구할 수 없습니다.';
+    confirmButton.textContent = '삭제';
+    confirmButton.classList.add('danger');
+  }
+
+  document.getElementById('academyActionModal').classList.add('open');
+
+  if (action === 'rename') {
+    setTimeout(() => input.focus(), 50);
   }
 }
 
-async function changeAcademyStatus(academyId, isActive, academyName) {
-  if (!deletionToken) return showDeleteAcademyError('인증키를 다시 확인해 주세요.');
-  const action = isActive ? '활성화' : '비활성화';
-  if (!confirm(`${academyName}을(를) ${action}하시겠습니까?`)) return;
-  showDeleteAcademyError('');
+function closeAcademyAction() {
+  pendingAcademyAction = null;
+  showAcademyActionError('');
+  document.getElementById('academyActionModal').classList.remove('open');
+}
+
+async function confirmAcademyAction() {
+  if (!pendingAcademyAction || !deletionToken) {
+    return showAcademyActionError('인증키를 다시 확인해 주세요.');
+  }
+
+  const button = document.getElementById('academyActionConfirmButton');
+  button.disabled = true;
+
   try {
-    await jsonPost('/api/v1/academy-management/status', {
-      registration_token: deletionToken,
-      academy_id: academyId,
-      is_active: isActive
-    });
+    if (pendingAcademyAction.action === 'rename') {
+      const newName = document.getElementById('academyActionNameInput').value.trim();
+      if (!newName) {
+        showAcademyActionError('학원 이름을 입력해 주세요.');
+        return;
+      }
+      if (newName === pendingAcademyAction.academyName) {
+        closeAcademyAction();
+        return;
+      }
+
+      await jsonPost('/api/v1/academy-management/update', {
+        registration_token: deletionToken,
+        academy_id: pendingAcademyAction.academyId,
+        academy_name: newName
+      });
+    } else if (pendingAcademyAction.action === 'status') {
+      await jsonPost('/api/v1/academy-management/status', {
+        registration_token: deletionToken,
+        academy_id: pendingAcademyAction.academyId,
+        is_active: !!pendingAcademyAction.isActive
+      });
+    } else if (pendingAcademyAction.action === 'delete') {
+      await jsonPost('/api/v1/academy-management/delete', {
+        registration_token: deletionToken,
+        academy_id: pendingAcademyAction.academyId
+      });
+    }
+
+    closeAcademyAction();
     await loadDeleteAcademies();
   } catch (e) {
-    showDeleteAcademyError(e.message);
+    showAcademyActionError(e.message);
+  } finally {
+    button.disabled = false;
   }
 }
 
-async function deleteAcademy(academyId, academyName) {
-  if (!deletionToken) return showDeleteAcademyError('인증키를 다시 확인해 주세요.');
-  const message = `${academyName} 학원을 삭제하시겠습니까?\n\n해당 학원의 녹음실, 원생/강사, 예약, 예약불가 시간, 관리자 정보가 모두 삭제되며 복구할 수 없습니다.`;
-  if (!confirm(message)) return;
+document.getElementById('deleteAcademyList').addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-academy-action]');
+  if (!button) return;
 
-  showDeleteAcademyError('');
-  try {
-    await jsonPost('/api/v1/academy-management/delete', {
-      registration_token: deletionToken,
-      academy_id: academyId
-    });
-    await loadDeleteAcademies();
-    alert(`${academyName} 학원이 삭제되었습니다.`);
-  } catch (e) {
-    showDeleteAcademyError(e.message);
+  const action = button.dataset.academyAction;
+  const academyId = Number(button.dataset.academyId);
+  const academyName = button.dataset.academyName || '';
+
+  if (action === 'rename') {
+    openAcademyAction('rename', academyId, academyName);
+  } else if (action === 'status') {
+    openAcademyAction('status', academyId, academyName, button.dataset.active === 'true');
+  } else if (action === 'delete') {
+    openAcademyAction('delete', academyId, academyName);
   }
-}
+});
+
+document.getElementById('academyActionModal').addEventListener('click', (event) => {
+  if (event.target.id === 'academyActionModal') closeAcademyAction();
+});
 
 document.getElementById('registerModal').addEventListener('click', (event) => {
   if (event.target.id === 'registerModal') closeRegister();
