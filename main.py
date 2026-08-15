@@ -1040,6 +1040,62 @@ def list_my_reservations(
     return result
 
 
+@app.post("/api/v1/reservations/{reservation_id}/cancel")
+def cancel_my_reservation(
+    reservation_id: str,
+    payload: CancelRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    auth = require_app_token(request)
+    academy_id = auth["academy_id"]
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="예약 취소 사유를 입력해 주세요.")
+
+    try:
+        row = db.scalar(
+            select(Reservation)
+            .where(
+                Reservation.id == reservation_id,
+                Reservation.academy_id == academy_id,
+                Reservation.nickname == auth.get("name"),
+                Reservation.phone_last4 == auth.get("phone_last4"),
+            )
+            .with_for_update()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="본인 예약을 찾을 수 없습니다.")
+        if row.cancelled_at is not None:
+            raise HTTPException(status_code=409, detail="이미 취소된 예약입니다.")
+        if _aware_utc(row.start_at) <= now_utc():
+            raise HTTPException(
+                status_code=409,
+                detail="이미 시작된 예약은 앱에서 취소할 수 없습니다. 관리자에게 문의해 주세요.",
+            )
+
+        row.cancelled_at = now_utc()
+        row.cancel_reason = reason
+        db.commit()
+        db.refresh(row)
+
+        item = public_reservation(row)
+        item["room_name"] = db.scalar(
+            select(Room.name).where(
+                Room.id == row.room_id,
+                Room.academy_id == academy_id,
+            )
+        )
+        item["can_move"] = False
+        return item
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+
 @app.patch("/api/v1/reservations/{reservation_id}/move")
 def move_my_reservation(
     reservation_id: str,
