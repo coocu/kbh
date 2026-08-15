@@ -118,6 +118,18 @@
       background:color-mix(in srgb, #30d158 16%, transparent);
       font-size:12px; font-weight:700;
     }
+    .member-card-head {
+      display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px;
+    }
+    .member-card-head h2 { margin:0; }
+    .member-table { min-width:760px; }
+    .member-table th, .member-table td { padding:8px 7px; vertical-align:middle; }
+    .member-table th { white-space:nowrap; font-size:13px; opacity:.72; }
+    .member-table td { font-size:14px; }
+    .member-table .actions { white-space:nowrap; }
+    .member-table .actions button { padding:7px 10px; }
+    .member-limit-free { opacity:.65; }
+    .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
 
     @media (max-width:600px) {
       header { padding:14px 16px; }
@@ -191,64 +203,115 @@
   </section>
 
   <section id="tab-members" class="tab-panel">
-    <div class="grid">
-      <section class="card">
-        <h2>회원 카테고리</h2>
-        <div class="row">
-          <input id="categoryName" class="grow" placeholder="예: 취미반, 입시반">
-          <button class="primary" onclick="createMemberCategory()">추가</button>
-        </div>
-        <div id="memberCategories"></div>
-      </section>
-
-      <section class="card">
+    <section class="card">
+      <div class="member-card-head">
         <h2>원생/강사 로그인 관리</h2>
-        <div class="policy-grid">
-          <div class="field">
-            <label class="muted">이름</label>
-            <input id="userName" placeholder="이름">
-          </div>
-          <div class="field">
-            <label class="muted">전화 끝 4자리</label>
-            <input id="userPhone4" inputmode="numeric" maxlength="4" placeholder="0000">
-          </div>
-          <div class="field">
-            <label class="muted">카테고리</label>
-            <select id="userCategory"></select>
-          </div>
-          <div class="field">
-            <label class="muted">예약시간 제한</label>
-            <input id="userBookingLimit" type="number" min="1" max="24" placeholder="미지정 = 자유">
-          </div>
-          <label class="inline-check">
-            <input id="userAllowAdditional" type="checkbox">
-            추가예약 가능
-          </label>
-        </div>
-        <div class="row" style="justify-content:flex-end">
-          <button class="primary" onclick="createAuthorizedUser()">회원 등록</button>
-        </div>
-        <div class="muted">
-          시간제한 미지정은 자유 예약입니다. 추가예약 OFF는 현재 보유 중인 예약시간 합계가 제한시간을 넘지 않게 하며,
-          예약시간이 지나면 그만큼 다시 예약할 수 있습니다. ON은 각 예약이 제한시간 이내이면 여러 예약을 추가로 만들 수 있습니다.
-        </div>
+        <button type="button" onclick="openCategoryManager()">카테고리 관리</button>
+      </div>
 
-        <div class="row" style="margin-top:12px">
-          <select id="authorizedUserCategoryFilter" onchange="renderAuthorizedUsers()">
-            <option value="">전체 카테고리</option>
-          </select>
-          <input
-            id="authorizedUserSearch"
-            class="grow"
-            placeholder="이름 또는 전화번호 검색"
-            autocomplete="off"
-            oninput="renderAuthorizedUsers()"
-          >
+      <div class="policy-grid">
+        <div class="field">
+          <label class="muted">이름</label>
+          <input id="userName" placeholder="이름">
         </div>
-        <div id="authorizedUsers" class="compact-list" style="max-height:520px"></div>
-      </section>
-    </div>
+        <div class="field">
+          <label class="muted">전화 끝 4자리</label>
+          <input id="userPhone4" inputmode="numeric" maxlength="4" placeholder="0000">
+        </div>
+        <div class="field">
+          <label class="muted">카테고리</label>
+          <select id="userCategory"></select>
+        </div>
+        <div class="field">
+          <label class="muted">예약시간 제한</label>
+          <input id="userBookingLimit" type="number" min="1" max="24" placeholder="미지정 = 자유">
+        </div>
+        <label class="inline-check">
+          <input id="userAllowAdditional" type="checkbox">
+          추가예약 가능
+        </label>
+      </div>
+      <div class="row" style="justify-content:flex-end">
+        <button class="primary" onclick="createAuthorizedUser()">회원 등록</button>
+      </div>
+      <div class="muted">
+        시간제한 미지정은 자유 예약입니다. 추가예약 OFF는 예약시간이 끝난 뒤 지정된 시간만큼 다시 예약할 수 있고,
+        ON은 각 예약이 제한시간 이내이면 추가 예약이 가능합니다.
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <select id="authorizedUserCategoryFilter" onchange="renderAuthorizedUsers()">
+          <option value="">전체 카테고리</option>
+        </select>
+        <input
+          id="authorizedUserSearch"
+          class="grow"
+          placeholder="이름 또는 전화번호 검색"
+          autocomplete="off"
+          oninput="renderAuthorizedUsers()"
+        >
+      </div>
+      <div class="scroll" style="margin-top:6px">
+        <table class="member-table">
+          <thead>
+            <tr>
+              <th>이름</th>
+              <th>전화번호 끝 4자리</th>
+              <th>카테고리</th>
+              <th>예약시간 제한</th>
+              <th>관리</th>
+            </tr>
+          </thead>
+          <tbody id="authorizedUsers"></tbody>
+        </table>
+      </div>
+    </section>
   </section>
+
+  <div id="categoryManagerModal" class="modal-backdrop" onclick="if(event.target===this) closeCategoryManager()">
+    <div class="modal-card">
+      <div class="member-card-head">
+        <h2>카테고리 관리</h2>
+        <button type="button" onclick="closeCategoryManager()">닫기</button>
+      </div>
+      <div class="row">
+        <input id="categoryName" class="grow" placeholder="예: 취미반, 입시반">
+        <button class="primary" onclick="createMemberCategory()">추가</button>
+      </div>
+      <div id="memberCategories"></div>
+    </div>
+  </div>
+
+  <div id="memberEditModal" class="modal-backdrop" onclick="if(event.target===this) closeMemberEditor()">
+    <div class="modal-card">
+      <h2>회원 수정</h2>
+      <input id="editUserId" type="hidden">
+      <div class="field">
+        <label class="muted">이름</label>
+        <input id="editUserName" placeholder="이름">
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label class="muted">전화 끝 4자리</label>
+        <input id="editUserPhone4" inputmode="numeric" maxlength="4" placeholder="0000">
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label class="muted">카테고리</label>
+        <select id="editUserCategory"></select>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label class="muted">예약시간 제한</label>
+        <input id="editUserBookingLimit" type="number" min="1" max="24" placeholder="미지정 = 자유">
+      </div>
+      <label class="inline-check" style="margin-top:10px">
+        <input id="editUserAllowAdditional" type="checkbox">
+        추가예약 가능
+      </label>
+      <div class="modal-actions">
+        <button type="button" onclick="closeMemberEditor()">취소</button>
+        <button type="button" class="primary" onclick="saveMemberEdit()">수정 저장</button>
+      </div>
+    </div>
+  </div>
 
   <section id="tab-reservations" class="tab-panel">
     <section class="card">
@@ -775,26 +838,49 @@ function categoryOptions(selectedId=null, includeAll=false) {
 }
 
 function renderMemberCategories() {
-  document.getElementById('memberCategories').innerHTML = memberCategories.map(c=>`
-    <div class="room">
-      <div class="row" style="justify-content:space-between">
-        <strong>${escapeHtml(c.name)}</strong>
-        <div class="row">
-          <button onclick='renameMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>수정</button>
-          <button class="danger" onclick='deleteMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>삭제</button>
+  const list = document.getElementById('memberCategories');
+  if (list) {
+    list.innerHTML = memberCategories.map(c=>`
+      <div class="room">
+        <div class="row" style="justify-content:space-between">
+          <strong>${escapeHtml(c.name)}</strong>
+          <div class="row">
+            <button onclick='renameMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>수정</button>
+            <button class="danger" onclick='deleteMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>삭제</button>
+          </div>
         </div>
-      </div>
-    </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 카테고리가 없습니다.</div>';
+      </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 카테고리가 없습니다.</div>';
+  }
 
   const createSelect = document.getElementById('userCategory');
-  if (createSelect) createSelect.innerHTML = categoryOptions(null, false);
+  if (createSelect) {
+    const current = createSelect.value;
+    createSelect.innerHTML = categoryOptions(null, false);
+    if ([...createSelect.options].some(o => o.value === current)) createSelect.value = current;
+  }
+
+  const editSelect = document.getElementById('editUserCategory');
+  if (editSelect) {
+    const current = editSelect.value;
+    editSelect.innerHTML = categoryOptions(null, false);
+    if ([...editSelect.options].some(o => o.value === current)) editSelect.value = current;
+  }
 
   const filter = document.getElementById('authorizedUserCategoryFilter');
   if (filter) {
     const current = filter.value;
     filter.innerHTML = categoryOptions(null, true);
-    filter.value = current;
+    if ([...filter.options].some(o => o.value === current)) filter.value = current;
   }
+}
+
+function openCategoryManager() {
+  renderMemberCategories();
+  document.getElementById('categoryManagerModal').classList.add('active');
+}
+
+function closeCategoryManager() {
+  document.getElementById('categoryManagerModal').classList.remove('active');
 }
 
 async function loadMemberCategories() {
@@ -844,26 +930,49 @@ async function createAuthorizedUser() {
   } catch(e) { alert(e.message); }
 }
 
-async function updateAuthorizedUser(id) {
+function openMemberEditor(id) {
   const row = authorizedUserRows.find(u => u.id === id);
   if (!row) return alert('회원 정보를 찾을 수 없습니다.');
 
-  const categoryValue = document.getElementById('userCategory-'+id).value;
+  document.getElementById('editUserId').value = row.id;
+  document.getElementById('editUserName').value = row.name || '';
+  document.getElementById('editUserPhone4').value = row.phone_last4 || '';
+  document.getElementById('editUserCategory').innerHTML = categoryOptions(row.category_id, false);
+  document.getElementById('editUserBookingLimit').value = row.booking_limit_hours ?? '';
+  document.getElementById('editUserAllowAdditional').checked = !!row.allow_additional_booking;
+  document.getElementById('memberEditModal').classList.add('active');
+}
+
+function closeMemberEditor() {
+  document.getElementById('memberEditModal').classList.remove('active');
+}
+
+async function saveMemberEdit() {
+  const id = Number(document.getElementById('editUserId').value);
+  const name = document.getElementById('editUserName').value.trim();
+  const phone_last4 = document.getElementById('editUserPhone4').value.trim();
+  const categoryValue = document.getElementById('editUserCategory').value;
   let booking_limit_hours;
   try {
-    booking_limit_hours = readBookingLimit(document.getElementById('userLimit-'+id).value);
+    booking_limit_hours = readBookingLimit(document.getElementById('editUserBookingLimit').value);
   } catch(e) { return alert(e.message); }
-  const allow_additional_booking = document.getElementById('userAdditional-'+id).checked;
+  const allow_additional_booking = document.getElementById('editUserAllowAdditional').checked;
+
+  if (!name) return alert('이름을 입력해 주세요.');
+  if (!/^\d{4}$/.test(phone_last4)) return alert('전화번호 끝 4자리는 숫자 4자리로 입력해 주세요.');
 
   try {
     await api('/api/admin/users/'+id, {
       method:'PATCH',
       body:JSON.stringify({
+        name,
+        phone_last4,
         category_id: categoryValue ? Number(categoryValue) : null,
         booking_limit_hours,
         allow_additional_booking,
       })
     });
+    closeMemberEditor();
     await loadAuthorizedUsers();
   } catch(e) { alert(e.message); }
 }
@@ -899,36 +1008,16 @@ function renderAuthorizedUsers() {
     : '등록된 원생/강사가 없습니다.';
 
   document.getElementById('authorizedUsers').innerHTML = users.map(u=>`
-    <div class="room">
-      <div class="row" style="justify-content:space-between">
-        <div>
-          <strong>${escapeHtml(u.name)}</strong>
-          ${u.category_name ? `<span class="category-pill">${escapeHtml(u.category_name)}</span>` : ''}
-          <div class="muted">전화 끝 4자리 ${escapeHtml(u.phone_last4)}</div>
-        </div>
+    <tr>
+      <td><strong>${escapeHtml(u.name)}</strong></td>
+      <td>${escapeHtml(u.phone_last4)}</td>
+      <td>${u.category_name ? `<span class="category-pill">${escapeHtml(u.category_name)}</span>` : '<span class="muted">미지정</span>'}</td>
+      <td>${u.booking_limit_hours ? `${u.booking_limit_hours}시간` : '<span class="member-limit-free">자유</span>'}</td>
+      <td class="actions">
+        <button onclick="openMemberEditor(${u.id})">수정</button>
         <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
-      </div>
-      <div class="policy-box">
-        <div class="policy-grid">
-          <div class="field">
-            <label class="muted">카테고리</label>
-            <select id="userCategory-${u.id}">${categoryOptions(u.category_id, false)}</select>
-          </div>
-          <div class="field">
-            <label class="muted">예약시간 제한</label>
-            <input id="userLimit-${u.id}" type="number" min="1" max="24"
-              value="${u.booking_limit_hours ?? ''}" placeholder="미지정 = 자유">
-          </div>
-          <label class="inline-check">
-            <input id="userAdditional-${u.id}" type="checkbox" ${u.allow_additional_booking ? 'checked' : ''}>
-            추가예약 가능
-          </label>
-          <div>
-            <button class="primary" onclick="updateAuthorizedUser(${u.id})">설정 저장</button>
-          </div>
-        </div>
-      </div>
-    </div>`).join('') || `<div class="muted" style="margin-top:12px">${emptyMessage}</div>`;
+      </td>
+    </tr>`).join('') || `<tr><td colspan="5" class="muted">${emptyMessage}</td></tr>`;
 }
 
 async function loadAuthorizedUsers() {
@@ -1029,7 +1118,7 @@ ensureBlockDate();
 renderBlockHourButtons();
 loadAll();
 setInterval(() => {
-  if (document.getElementById('reservationEditModal')?.classList.contains('active')) return;
+  if (document.querySelector('.modal-backdrop.active')) return;
   if (document.activeElement && ['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)) return;
   loadAll();
 }, 5000);
