@@ -2520,8 +2520,8 @@ def admin_delete_cancelled_reservation(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다.")
-    if row.cancelled_at is None:
-        raise HTTPException(status_code=409, detail="취소된 예약만 삭제할 수 있습니다.")
+    if row.cancelled_at is None and not _is_early_ended(row):
+        raise HTTPException(status_code=409, detail="취소 또는 이용중 종료 기록만 삭제할 수 있습니다.")
 
     db.execute(
         delete(practice_journals_table).where(practice_journals_table.c.reservation_id == row.id)
