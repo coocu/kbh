@@ -42,7 +42,7 @@
       max-width:1100px;
       margin:0 auto;
       display:grid;
-      grid-template-columns:repeat(7,minmax(0,1fr));
+      grid-template-columns:repeat(8,minmax(0,1fr));
       gap:8px;
     }
     .tab-button {
@@ -537,6 +537,7 @@
     <button type="button" class="tab-button" data-tab="usage" onclick="switchAdminTab('usage')">이용현황</button>
     <button type="button" class="tab-button" data-tab="practice" onclick="switchAdminTab('practice')">연습일지체크</button>
     <button type="button" class="tab-button" data-tab="password" onclick="switchAdminTab('password')">비밀번호 변경</button>
+    <button type="button" class="tab-button" data-tab="backup" onclick="switchAdminTab('backup')">백업/복원</button>
   </div>
 </nav>
 
@@ -980,6 +981,26 @@
       <div class="row"><input id="newAdminPassword" type="password" class="grow" placeholder="새 비밀번호"></div>
       <div class="row"><input id="newAdminPasswordConfirm" type="password" class="grow" placeholder="새 비밀번호 확인"></div>
       <button class="primary" onclick="changeAdminPassword()">비밀번호 변경</button>
+    </section>
+  </section>
+
+  <section id="tab-backup" class="tab-panel">
+    <section class="card">
+      <h2>백업/복원</h2>
+      <div class="muted">현재 로그인한 학원의 회원, 카테고리, 녹음실, 운영시간, 예약, 예약불가, 연습일지 등 운영데이터만 ZIP으로 백업합니다. 학원명, 활성상태, 최초 관리자 정보와 관리자 비밀번호는 포함하지 않습니다.</div>
+      <div class="row" style="margin-top:14px">
+        <button type="button" class="primary" onclick="downloadOperationalBackup()">ZIP 백업</button>
+        <button type="button" onclick="startOperationalRestore()">ZIP 복원</button>
+      </div>
+      <input id="restoreBackupFile" type="file" accept=".zip,application/zip" style="display:none" onchange="prepareOperationalRestore()">
+      <div id="restoreBackupReady" class="card" style="display:none;margin-top:14px;padding:14px">
+        <strong id="restoreBackupFileName"></strong>
+        <div class="muted" style="margin-top:6px">복원하면 현재 학원의 운영데이터가 삭제되고 선택한 ZIP 내용으로 교체됩니다. 학원명과 관리자 로그인 정보는 유지됩니다.</div>
+        <div class="row" style="margin-top:10px">
+          <button type="button" onclick="cancelOperationalRestore()">취소</button>
+          <button type="button" class="danger" onclick="confirmOperationalRestore()">복원 확인</button>
+        </div>
+      </div>
     </section>
   </section>
 </main>
@@ -2259,6 +2280,75 @@ async function saveAdminPracticeJournalEdit() {
     closeAdminPracticeJournalEdit();
     await loadPracticeSelectedUser();
   } catch(e) { alert(e.message); }
+}
+
+async function downloadOperationalBackup() {
+  try {
+    const response = await fetch('/api/admin/backup', {cache:'no-store'});
+    if (!response.ok) {
+      const data = await response.json().catch(()=>({}));
+      throw new Error(typeof data.detail === 'string' ? data.detail : '백업 파일을 만들지 못했습니다.');
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const filename = match ? match[1] : 'recording_backup.zip';
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
+function startOperationalRestore() {
+  const warning = '복원하면 현재 학원의 기존 운영데이터가 삭제되고 백업 데이터로 교체됩니다.\n\n학원명, 최초 관리자 정보, 관리자 비밀번호는 유지됩니다.\n\n계속하시겠습니까?';
+  if (!confirm(warning)) return;
+  const input = document.getElementById('restoreBackupFile');
+  input.value = '';
+  input.click();
+}
+
+function prepareOperationalRestore() {
+  const input = document.getElementById('restoreBackupFile');
+  const file = input.files && input.files[0];
+  const ready = document.getElementById('restoreBackupReady');
+  if (!file) {
+    ready.style.display = 'none';
+    return;
+  }
+  document.getElementById('restoreBackupFileName').textContent = file.name;
+  ready.style.display = '';
+}
+
+function cancelOperationalRestore() {
+  document.getElementById('restoreBackupFile').value = '';
+  document.getElementById('restoreBackupReady').style.display = 'none';
+}
+
+async function confirmOperationalRestore() {
+  const input = document.getElementById('restoreBackupFile');
+  const file = input.files && input.files[0];
+  if (!file) return alert('복원할 ZIP 파일을 선택해 주세요.');
+  if (!confirm('현재 운영데이터를 삭제하고 이 ZIP 파일로 복원하시겠습니까?')) return;
+
+  const body = new FormData();
+  body.append('file', file, file.name);
+  try {
+    const response = await fetch('/api/admin/restore', {method:'POST', body});
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '복원에 실패했습니다.');
+    cancelOperationalRestore();
+    alert('운영데이터 복원이 완료되었습니다.');
+    await loadAll();
+  } catch(e) {
+    alert(e.message);
+  }
 }
 
 async function changeAdminPassword() {

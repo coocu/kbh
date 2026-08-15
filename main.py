@@ -1,14 +1,17 @@
 import hmac
+import io
+import json
 import os
 import uuid
+import zipfile
 from contextlib import asynccontextmanager
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
-from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint, delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
@@ -26,6 +29,8 @@ from schemas import (
     AcademyDeleteRequest,
     AcademyManagementRequest,
     AcademyRegistrationVerifyRequest,
+    AcademyStatusRequest,
+    AcademyUpdateRequest,
     AdminLoginRequest,
     AdminMemberReservationCreate,
     AdminReservationUpdate,
@@ -43,6 +48,7 @@ from schemas import (
     UserLoginRequest,
 )
 from security import (
+    create_academy_management_token,
     create_academy_registration_token,
     create_admin_app_token,
     create_admin_recovery_token,
@@ -51,6 +57,7 @@ from security import (
     hash_password,
     require_admin,
     require_app_token,
+    verify_academy_management_token,
     verify_academy_registration_token,
     verify_admin_recovery_token,
     verify_password,
@@ -293,6 +300,10 @@ def room_dict(room: Room, schedule: RoomSchedule | None = None) -> dict:
 
 def academy_dict(academy: Academy) -> dict:
     return {"id": academy.id, "name": academy.name}
+
+
+def academy_management_dict(academy: Academy) -> dict:
+    return {"id": academy.id, "name": academy.name, "is_active": bool(academy.is_active)}
 
 
 def category_dict(row: MemberCategory) -> dict:
@@ -768,20 +779,45 @@ def register_academy(payload: AcademyCreateRequest, db: Session = Depends(get_db
     return academy_dict(academy)
 
 
+@app.post("/api/v1/academy-management/verify")
+async def verify_academy_management_key(payload: AcademyRegistrationVerifyRequest):
+    candidate = payload.license_key.strip()
+    if "kyh" not in candidate.lower():
+        raise HTTPException(status_code=401, detail="kyh가 포함된 인증키만 사용할 수 있습니다.")
+
+    try:
+        verified = await verify_license_key(candidate)
+    except AuthNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if not verified:
+        raise HTTPException(status_code=401, detail="인증키를 확인해 주세요.")
+
+    return {
+        "verified": True,
+        "management_token": create_academy_management_token(),
+    }
+
+
 @app.post("/api/v1/academy-management/list")
 def list_academies_for_management(payload: AcademyManagementRequest, db: Session = Depends(get_db)):
-    # 인증키 검증 후 발급된 짧은 유효시간의 등록 토큰만 허용한다.
-    verify_academy_registration_token(payload.registration_token)
+    # 학원삭제 버튼에서 kyh 포함 인증키 확인 후 발급된 학원관리 전용 토큰만 허용한다.
+    verify_academy_management_token(payload.registration_token)
     rows = db.scalars(
-        select(Academy)
-        .where(Academy.is_active.is_(True))
-        .order_by(Academy.name.asc(), Academy.id.asc())
+        select(Academy).order_by(Academy.name.asc(), Academy.id.asc())
     ).all()
-    return [academy_dict(row) for row in rows]
+    return [academy_management_dict(row) for row in rows]
+
+
+def _get_academy_for_management(db: Session, academy_id: int) -> Academy:
+    academy = db.get(Academy, academy_id)
+    if academy is None:
+        raise HTTPException(status_code=404, detail="등록된 학원을 찾을 수 없습니다.")
+    return academy
 
 
 def _delete_legacy_academy_data_if_needed(db: Session, academy_name: str) -> None:
-    # 최초 단일학원 데이터를 다중학원 DB로 이전했던 학원을 삭제하는 경우,
+    # 최초 단일학원 데이터를 다중학원 DB로 이전했던 학원을 삭제/이름변경하는 경우,
     # 남아 있는 구형 테이블 데이터도 함께 지워 서버 재시작 때 다시 복원되지 않게 한다.
     if academy_name != LEGACY_ACADEMY_NAME:
         return
@@ -798,15 +834,50 @@ def _delete_legacy_academy_data_if_needed(db: Session, academy_name: str) -> Non
             db.execute(text(f"DELETE FROM {table_name}"))
 
 
+@app.post("/api/v1/academy-management/update")
+def update_academy(payload: AcademyUpdateRequest, db: Session = Depends(get_db)):
+    verify_academy_management_token(payload.registration_token)
+    academy = _get_academy_for_management(db, payload.academy_id)
+    new_name = payload.academy_name.strip()
+
+    if not new_name:
+        raise HTTPException(status_code=422, detail="학원 이름을 입력해 주세요.")
+    if academy.name == new_name:
+        return academy_management_dict(academy)
+    if db.scalar(select(Academy).where(Academy.name == new_name, Academy.id != academy.id)) is not None:
+        raise HTTPException(status_code=409, detail="이미 등록된 학원 이름입니다.")
+
+    old_name = academy.name
+    academy.name = new_name
+    try:
+        _delete_legacy_academy_data_if_needed(db, old_name)
+        db.commit()
+        db.refresh(academy)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 등록된 학원 이름입니다.")
+    return academy_management_dict(academy)
+
+
+@app.post("/api/v1/academy-management/status")
+def set_academy_status(payload: AcademyStatusRequest, db: Session = Depends(get_db)):
+    verify_academy_management_token(payload.registration_token)
+    academy = _get_academy_for_management(db, payload.academy_id)
+    academy.is_active = bool(payload.is_active)
+    db.add(academy)
+    db.commit()
+    db.refresh(academy)
+    return academy_management_dict(academy)
+
+
 @app.post("/api/v1/academy-management/delete")
 def delete_academy(payload: AcademyDeleteRequest, db: Session = Depends(get_db)):
-    # 삭제 화면 진입 때 인증키로 발급받은 토큰을 다시 검증한다.
-    verify_academy_registration_token(payload.registration_token)
-    academy = get_academy(db, payload.academy_id)
+    # 학원관리 팝업 진입 시 받은 전용 토큰을 사용하므로 내부 기능에서는 인증키를 다시 묻지 않는다.
+    verify_academy_management_token(payload.registration_token)
+    academy = _get_academy_for_management(db, payload.academy_id)
     academy_name = academy.name
 
     # 학원에 속한 자료를 자식 -> 부모 순서로 명시적으로 삭제한다.
-    # DB의 cascade 설정 여부에 기대지 않아 예약/녹음실 FK 충돌을 피한다.
     db.execute(delete(UnavailableBlock).where(UnavailableBlock.academy_id == academy.id))
     db.execute(delete(practice_journals_table).where(practice_journals_table.c.academy_id == academy.id))
     db.execute(delete(Reservation).where(Reservation.academy_id == academy.id))
@@ -1187,6 +1258,127 @@ def list_my_reservations(
         )
         result.append(item)
     return result
+
+
+
+@app.patch("/api/v1/reservations/{reservation_id}")
+def update_my_reservation(
+    reservation_id: str,
+    payload: AdminReservationUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """예약 시작 전 본인 예약의 녹음실/날짜/시간을 변경한다.
+
+    기존 예약 1건을 수정하므로 기존 예약은 충돌/회원시간 계산에서 제외한다.
+    이용이 시작된 뒤에는 기존 '남은 시간 녹음실 이동' / '이용 종료' 기능을 사용한다.
+    """
+    auth = require_app_token(request)
+    academy_id = auth["academy_id"]
+
+    try:
+        row = db.scalar(
+            select(Reservation)
+            .where(
+                Reservation.id == reservation_id,
+                Reservation.academy_id == academy_id,
+                Reservation.nickname == auth.get("name"),
+                Reservation.phone_last4 == auth.get("phone_last4"),
+            )
+            .with_for_update()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="본인 예약을 찾을 수 없습니다.")
+        if row.cancelled_at is not None:
+            raise HTTPException(status_code=409, detail="취소된 예약은 변경할 수 없습니다.")
+        if _is_early_ended(row):
+            raise HTTPException(status_code=409, detail="이용중 종료된 예약은 변경할 수 없습니다.")
+
+        current = now_utc()
+        if _aware_utc(row.start_at) <= current:
+            raise HTTPException(
+                status_code=409,
+                detail="이미 시작된 예약은 시간을 변경할 수 없습니다. 이용 중에는 남은 시간 녹음실 이동 또는 이용 종료를 이용해 주세요.",
+            )
+
+        room_id = payload.room_id if payload.room_id is not None else row.room_id
+        start = normalize_utc(payload.start_at) if payload.start_at is not None else _aware_utc(row.start_at)
+        end = normalize_utc(payload.end_at) if payload.end_at is not None else _aware_utc(row.end_at)
+
+        if end <= start:
+            raise HTTPException(status_code=422, detail="종료 시간은 시작 시간보다 뒤여야 합니다.")
+        if start < current:
+            raise HTTPException(status_code=409, detail="지난 시간으로 예약을 변경할 수 없습니다.")
+        if start > current + relativedelta(months=3):
+            raise HTTPException(status_code=409, detail="예약은 현재 시점부터 최대 3개월까지만 변경할 수 있습니다.")
+
+        user = _find_logged_in_user_for_update(db, auth)
+        _enforce_member_booking_policy(
+            db,
+            user,
+            start,
+            end,
+            exclude_reservation_id=row.id,
+        )
+
+        room = db.scalar(
+            select(Room)
+            .where(
+                Room.id == room_id,
+                Room.academy_id == academy_id,
+                Room.is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        if room is None:
+            raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+        if room.is_paused:
+            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 녹음실은 현재 사용중지 상태입니다.")
+
+        schedule = _get_room_schedule(db, room, create=False)
+        if not _is_within_room_schedule(start, end, schedule):
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+
+        conflict_reservation = db.scalar(
+            select(Reservation).where(
+                Reservation.academy_id == academy_id,
+                Reservation.room_id == room.id,
+                Reservation.id != row.id,
+                Reservation.cancelled_at.is_(None),
+                Reservation.start_at < end,
+                Reservation.end_at > start,
+            )
+        )
+        if conflict_reservation:
+            raise HTTPException(status_code=409, detail="변경하려는 시간에 이미 다른 예약이 있습니다.")
+
+        conflict_block = db.scalar(
+            select(UnavailableBlock).where(
+                UnavailableBlock.academy_id == academy_id,
+                UnavailableBlock.room_id == room.id,
+                UnavailableBlock.start_at < end,
+                UnavailableBlock.end_at > start,
+            )
+        )
+        if conflict_block:
+            raise HTTPException(status_code=409, detail="변경하려는 시간은 예약불가로 지정되어 있습니다.")
+
+        row.room_id = room.id
+        row.start_at = start
+        row.end_at = end
+        db.commit()
+        db.refresh(row)
+
+        item = public_reservation(row)
+        item["room_name"] = room.name
+        item["can_move"] = True
+        return item
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
 
 @app.patch("/api/v1/reservations/{reservation_id}/move")
@@ -1572,16 +1764,17 @@ def admin_forgot_password_page(request: Request, db: Session = Depends(get_db)):
         context={
             "academies": _academy_options(db),
             "selected_academy_id": request.query_params.get("academy_id", ""),
-            "error": request.query_params.get("error") == "1",
+            "error": request.query_params.get("error", ""),
         },
     )
 
 
 @app.post("/admin/forgot/verify", include_in_schema=False)
-def admin_forgot_password_verify(
+async def admin_forgot_password_verify(
     academy_id: int = Form(...),
     name: str = Form(...),
     phone_last4: str = Form(...),
+    license_key: str = Form(...),
     db: Session = Depends(get_db),
 ):
     try:
@@ -1603,6 +1796,14 @@ def admin_forgot_password_verify(
         )
     )
     if not matched:
+        return RedirectResponse(url=f"/admin/forgot?error=1&academy_id={academy.id}", status_code=303)
+
+    try:
+        key_verified = await verify_license_key(license_key)
+    except AuthNotConfigured:
+        return RedirectResponse(url=f"/admin/forgot?error=server&academy_id={academy.id}", status_code=303)
+
+    if not key_verified:
         return RedirectResponse(url=f"/admin/forgot?error=1&academy_id={academy.id}", status_code=303)
 
     response = RedirectResponse(url="/admin/reset-password", status_code=303)
@@ -2222,6 +2423,436 @@ def admin_update_practice_journal(
         raise HTTPException(status_code=404, detail="연결된 예약을 찾을 수 없습니다.")
     return _practice_journal_dict(db, updated, reservation)
 
+
+
+BACKUP_FORMAT = "our-recording-room-operational-data"
+BACKUP_VERSION = 1
+BACKUP_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _backup_iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return _aware_utc(value).isoformat()
+
+
+def _backup_datetime(value, field_name: str, allow_none: bool = False) -> datetime | None:
+    if value is None and allow_none:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise HTTPException(status_code=422, detail=f"백업 파일의 {field_name} 값이 올바르지 않습니다.")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"백업 파일의 {field_name} 날짜 형식이 올바르지 않습니다.")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _require_backup_list(data: dict, key: str) -> list:
+    value = data.get(key)
+    if not isinstance(value, list):
+        raise HTTPException(status_code=422, detail=f"백업 파일에 {key} 데이터가 없습니다.")
+    return value
+
+
+def _validate_operational_backup(payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=422, detail="백업 데이터 형식이 올바르지 않습니다.")
+    if payload.get("format") != BACKUP_FORMAT or payload.get("version") != BACKUP_VERSION:
+        raise HTTPException(status_code=422, detail="지원하지 않는 백업 파일입니다.")
+
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=422, detail="백업 운영 데이터가 없습니다.")
+
+    categories = _require_backup_list(data, "member_categories")
+    users = _require_backup_list(data, "authorized_users")
+    policies = _require_backup_list(data, "member_policies")
+    rooms = _require_backup_list(data, "rooms")
+    schedules = _require_backup_list(data, "room_schedules")
+    reservations = _require_backup_list(data, "reservations")
+    blocks = _require_backup_list(data, "unavailable_blocks")
+    journals = _require_backup_list(data, "practice_journals")
+
+    def source_ids(rows: list, label: str) -> set:
+        result = set()
+        for row in rows:
+            if not isinstance(row, dict) or row.get("source_id") is None:
+                raise HTTPException(status_code=422, detail=f"백업 파일의 {label} 식별자가 올바르지 않습니다.")
+            source_id = str(row["source_id"])
+            if source_id in result:
+                raise HTTPException(status_code=422, detail=f"백업 파일의 {label} 식별자가 중복되었습니다.")
+            result.add(source_id)
+        return result
+
+    category_ids = source_ids(categories, "카테고리")
+    user_ids = source_ids(users, "회원")
+    room_ids = source_ids(rooms, "녹음실")
+    reservation_ids = source_ids(reservations, "예약")
+    source_ids(blocks, "예약불가")
+    source_ids(journals, "연습일지")
+
+    for row in categories:
+        if not str(row.get("name", "")).strip():
+            raise HTTPException(status_code=422, detail="백업 파일의 카테고리 이름이 올바르지 않습니다.")
+        _backup_datetime(row.get("created_at"), "카테고리 생성일")
+
+    for row in users:
+        if not str(row.get("name", "")).strip() or len(str(row.get("phone_last4", ""))) != 4:
+            raise HTTPException(status_code=422, detail="백업 파일의 회원 정보가 올바르지 않습니다.")
+        _backup_datetime(row.get("created_at"), "회원 생성일")
+
+    for row in policies:
+        user_source_id = str(row.get("user_source_id"))
+        category_source_id = row.get("category_source_id")
+        if user_source_id not in user_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 회원 정책 연결정보가 올바르지 않습니다.")
+        if category_source_id is not None and str(category_source_id) not in category_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 회원 카테고리 연결정보가 올바르지 않습니다.")
+        limit = row.get("booking_limit_hours")
+        if limit is not None and (not isinstance(limit, int) or limit < 1 or limit > 24):
+            raise HTTPException(status_code=422, detail="백업 파일의 예약시간 제한값이 올바르지 않습니다.")
+        _backup_datetime(row.get("updated_at"), "회원 정책 수정일")
+
+    for row in rooms:
+        if not str(row.get("name", "")).strip():
+            raise HTTPException(status_code=422, detail="백업 파일의 녹음실 이름이 올바르지 않습니다.")
+        _backup_datetime(row.get("created_at"), "녹음실 생성일")
+        _backup_datetime(row.get("updated_at"), "녹음실 수정일")
+
+    for row in schedules:
+        if str(row.get("room_source_id")) not in room_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 녹음실 운영시간 연결정보가 올바르지 않습니다.")
+        open_hour = row.get("open_hour")
+        close_hour = row.get("close_hour")
+        if not isinstance(open_hour, int) or not isinstance(close_hour, int) or not (0 <= open_hour <= 23) or not (1 <= close_hour <= 24) or close_hour <= open_hour:
+            raise HTTPException(status_code=422, detail="백업 파일의 녹음실 운영시간이 올바르지 않습니다.")
+        _backup_datetime(row.get("updated_at"), "녹음실 운영시간 수정일")
+
+    for row in reservations:
+        if str(row.get("room_source_id")) not in room_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 예약 녹음실 연결정보가 올바르지 않습니다.")
+        start_at = _backup_datetime(row.get("start_at"), "예약 시작시간")
+        end_at = _backup_datetime(row.get("end_at"), "예약 종료시간")
+        if end_at <= start_at:
+            raise HTTPException(status_code=422, detail="백업 파일의 예약시간 범위가 올바르지 않습니다.")
+        _backup_datetime(row.get("cancelled_at"), "예약 취소시간", allow_none=True)
+        _backup_datetime(row.get("created_at"), "예약 생성일")
+
+    for row in blocks:
+        if str(row.get("room_source_id")) not in room_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 예약불가 녹음실 연결정보가 올바르지 않습니다.")
+        start_at = _backup_datetime(row.get("start_at"), "예약불가 시작시간")
+        end_at = _backup_datetime(row.get("end_at"), "예약불가 종료시간")
+        if end_at <= start_at:
+            raise HTTPException(status_code=422, detail="백업 파일의 예약불가 시간 범위가 올바르지 않습니다.")
+        _backup_datetime(row.get("created_at"), "예약불가 생성일")
+
+    for row in journals:
+        if str(row.get("reservation_source_id")) not in reservation_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 연습일지 예약 연결정보가 올바르지 않습니다.")
+        user_source_id = row.get("user_source_id")
+        if user_source_id is not None and str(user_source_id) not in user_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 연습일지 회원 연결정보가 올바르지 않습니다.")
+        if not str(row.get("content", "")).strip():
+            raise HTTPException(status_code=422, detail="백업 파일의 연습일지 내용이 올바르지 않습니다.")
+        _backup_datetime(row.get("created_at"), "연습일지 생성일")
+        _backup_datetime(row.get("updated_at"), "연습일지 수정일")
+
+    return data
+
+
+def _build_operational_backup(db: Session, academy_id: int) -> dict:
+    categories = db.scalars(select(MemberCategory).where(MemberCategory.academy_id == academy_id).order_by(MemberCategory.id.asc())).all()
+    users = db.scalars(select(AuthorizedUser).where(AuthorizedUser.academy_id == academy_id).order_by(AuthorizedUser.id.asc())).all()
+    policies = db.scalars(select(MemberPolicy).where(MemberPolicy.academy_id == academy_id).order_by(MemberPolicy.user_id.asc())).all()
+    rooms = db.scalars(select(Room).where(Room.academy_id == academy_id).order_by(Room.id.asc())).all()
+    schedules = db.scalars(select(RoomSchedule).where(RoomSchedule.academy_id == academy_id).order_by(RoomSchedule.room_id.asc())).all()
+    reservations = db.scalars(select(Reservation).where(Reservation.academy_id == academy_id).order_by(Reservation.created_at.asc())).all()
+    blocks = db.scalars(select(UnavailableBlock).where(UnavailableBlock.academy_id == academy_id).order_by(UnavailableBlock.created_at.asc())).all()
+    journals = db.execute(select(practice_journals_table).where(practice_journals_table.c.academy_id == academy_id).order_by(practice_journals_table.c.created_at.asc())).mappings().all()
+
+    return {
+        "format": BACKUP_FORMAT,
+        "version": BACKUP_VERSION,
+        "created_at": now_utc().isoformat(),
+        "data": {
+            # 학원명/학원ID/활성상태/최초관리자/관리자비밀번호 등 학원 계정 자체는 백업하지 않는다.
+            "member_categories": [
+                {"source_id": row.id, "name": row.name, "created_at": _backup_iso(row.created_at)}
+                for row in categories
+            ],
+            "authorized_users": [
+                {"source_id": row.id, "name": row.name, "phone_last4": row.phone_last4, "created_at": _backup_iso(row.created_at)}
+                for row in users
+            ],
+            "member_policies": [
+                {
+                    "user_source_id": row.user_id,
+                    "category_source_id": row.category_id,
+                    "booking_limit_hours": row.booking_limit_hours,
+                    "allow_additional_booking": bool(row.allow_additional_booking),
+                    "updated_at": _backup_iso(row.updated_at),
+                }
+                for row in policies
+            ],
+            "rooms": [
+                {
+                    "source_id": row.id,
+                    "name": row.name,
+                    "is_paused": bool(row.is_paused),
+                    "pause_reason": row.pause_reason,
+                    "is_deleted": bool(row.is_deleted),
+                    "created_at": _backup_iso(row.created_at),
+                    "updated_at": _backup_iso(row.updated_at),
+                }
+                for row in rooms
+            ],
+            "room_schedules": [
+                {
+                    "room_source_id": row.room_id,
+                    "open_hour": row.open_hour,
+                    "close_hour": row.close_hour,
+                    "updated_at": _backup_iso(row.updated_at),
+                }
+                for row in schedules
+            ],
+            "reservations": [
+                {
+                    "source_id": row.id,
+                    "room_source_id": row.room_id,
+                    "nickname": row.nickname,
+                    "phone_last4": row.phone_last4,
+                    "start_at": _backup_iso(row.start_at),
+                    "end_at": _backup_iso(row.end_at),
+                    "cancelled_at": _backup_iso(row.cancelled_at),
+                    "cancel_reason": row.cancel_reason,
+                    "created_at": _backup_iso(row.created_at),
+                }
+                for row in reservations
+            ],
+            "unavailable_blocks": [
+                {
+                    "source_id": row.id,
+                    "room_source_id": row.room_id,
+                    "start_at": _backup_iso(row.start_at),
+                    "end_at": _backup_iso(row.end_at),
+                    "reason": row.reason,
+                    "created_at": _backup_iso(row.created_at),
+                }
+                for row in blocks
+            ],
+            "practice_journals": [
+                {
+                    "source_id": row["id"],
+                    "user_source_id": row["user_id"],
+                    "reservation_source_id": row["reservation_id"],
+                    "content": row["content"],
+                    "authored_by": row["authored_by"],
+                    "created_at": _backup_iso(row["created_at"]),
+                    "updated_at": _backup_iso(row["updated_at"]),
+                }
+                for row in journals
+            ],
+        },
+    }
+
+
+@app.get("/api/admin/backup")
+def admin_download_backup(request: Request, db: Session = Depends(get_db)):
+    academy_id = _admin_academy_id(request)
+    # 로그인한 현재 학원의 운영데이터만 백업한다. Academy/AdminCredential 행은 포함하지 않는다.
+    payload = _build_operational_backup(db, academy_id)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        manifest = {
+            "format": BACKUP_FORMAT,
+            "version": BACKUP_VERSION,
+            "created_at": payload["created_at"],
+        }
+        archive.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
+        archive.writestr("data.json", json.dumps(payload, ensure_ascii=False, indent=2))
+    buffer.seek(0)
+    filename = f"recording_backup_{now_utc().astimezone(BOOKING_TIMEZONE).strftime('%Y%m%d_%H%M')}.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/admin/restore")
+async def admin_restore_backup(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    academy_id = _admin_academy_id(request)
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".zip"):
+        raise HTTPException(status_code=422, detail="우리의 녹음실 백업 ZIP 파일을 선택해 주세요.")
+
+    raw = await file.read(BACKUP_MAX_UPLOAD_BYTES + 1)
+    if not raw:
+        raise HTTPException(status_code=422, detail="백업 ZIP 파일이 비어 있습니다.")
+    if len(raw) > BACKUP_MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="백업 ZIP 파일은 50MB 이하만 복원할 수 있습니다.")
+
+    # 기존 운영데이터를 지우기 전에 ZIP 전체 구조와 연결관계를 먼저 검증한다.
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as archive:
+            names = set(archive.namelist())
+            if "manifest.json" not in names or "data.json" not in names:
+                raise HTTPException(status_code=422, detail="우리의 녹음실 백업 파일 형식이 아닙니다.")
+            manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
+            payload = json.loads(archive.read("data.json").decode("utf-8"))
+    except HTTPException:
+        raise
+    except (zipfile.BadZipFile, KeyError, UnicodeDecodeError, json.JSONDecodeError):
+        raise HTTPException(status_code=422, detail="백업 ZIP 파일이 손상되었거나 형식이 올바르지 않습니다.")
+
+    if not isinstance(manifest, dict) or manifest.get("format") != BACKUP_FORMAT or manifest.get("version") != BACKUP_VERSION:
+        raise HTTPException(status_code=422, detail="지원하지 않는 백업 ZIP 파일입니다.")
+    data = _validate_operational_backup(payload)
+
+    try:
+        # 현재 학원의 운영데이터만 교체한다. 학원명/활성상태/복구정보/관리자 비밀번호는 그대로 유지한다.
+        db.execute(delete(practice_journals_table).where(practice_journals_table.c.academy_id == academy_id))
+        db.execute(delete(UnavailableBlock).where(UnavailableBlock.academy_id == academy_id))
+        db.execute(delete(Reservation).where(Reservation.academy_id == academy_id))
+        db.execute(delete(MemberPolicy).where(MemberPolicy.academy_id == academy_id))
+        db.execute(delete(MemberCategory).where(MemberCategory.academy_id == academy_id))
+        db.execute(delete(AuthorizedUser).where(AuthorizedUser.academy_id == academy_id))
+        db.execute(delete(RoomSchedule).where(RoomSchedule.academy_id == academy_id))
+        db.execute(delete(Room).where(Room.academy_id == academy_id))
+        db.flush()
+
+        category_map: dict[str, int] = {}
+        for source in data["member_categories"]:
+            row = MemberCategory(
+                academy_id=academy_id,
+                name=str(source["name"]).strip(),
+                created_at=_backup_datetime(source["created_at"], "카테고리 생성일"),
+            )
+            db.add(row)
+            db.flush()
+            category_map[str(source["source_id"])] = row.id
+
+        user_map: dict[str, int] = {}
+        for source in data["authorized_users"]:
+            row = AuthorizedUser(
+                academy_id=academy_id,
+                name=str(source["name"]).strip(),
+                phone_last4=str(source["phone_last4"]),
+                created_at=_backup_datetime(source["created_at"], "회원 생성일"),
+            )
+            db.add(row)
+            db.flush()
+            user_map[str(source["source_id"])] = row.id
+
+        for source in data["member_policies"]:
+            category_source_id = source.get("category_source_id")
+            db.add(MemberPolicy(
+                user_id=user_map[str(source["user_source_id"])],
+                academy_id=academy_id,
+                category_id=category_map.get(str(category_source_id)) if category_source_id is not None else None,
+                booking_limit_hours=source.get("booking_limit_hours"),
+                allow_additional_booking=bool(source.get("allow_additional_booking", False)),
+                updated_at=_backup_datetime(source["updated_at"], "회원 정책 수정일"),
+            ))
+
+        room_map: dict[str, int] = {}
+        for source in data["rooms"]:
+            row = Room(
+                academy_id=academy_id,
+                name=str(source["name"]).strip(),
+                is_paused=bool(source.get("is_paused", False)),
+                pause_reason=source.get("pause_reason"),
+                is_deleted=bool(source.get("is_deleted", False)),
+                created_at=_backup_datetime(source["created_at"], "녹음실 생성일"),
+                updated_at=_backup_datetime(source["updated_at"], "녹음실 수정일"),
+            )
+            db.add(row)
+            db.flush()
+            room_map[str(source["source_id"])] = row.id
+
+        for source in data["room_schedules"]:
+            db.add(RoomSchedule(
+                room_id=room_map[str(source["room_source_id"])],
+                academy_id=academy_id,
+                open_hour=int(source["open_hour"]),
+                close_hour=int(source["close_hour"]),
+                updated_at=_backup_datetime(source["updated_at"], "녹음실 운영시간 수정일"),
+            ))
+
+        reservation_map: dict[str, str] = {}
+        for source in data["reservations"]:
+            new_id = str(uuid.uuid4())
+            row = Reservation(
+                id=new_id,
+                academy_id=academy_id,
+                room_id=room_map[str(source["room_source_id"])],
+                nickname=str(source.get("nickname", "")),
+                phone_last4=str(source.get("phone_last4", "")),
+                start_at=_backup_datetime(source["start_at"], "예약 시작시간"),
+                end_at=_backup_datetime(source["end_at"], "예약 종료시간"),
+                cancelled_at=_backup_datetime(source.get("cancelled_at"), "예약 취소시간", allow_none=True),
+                cancel_reason=source.get("cancel_reason"),
+                created_at=_backup_datetime(source["created_at"], "예약 생성일"),
+            )
+            db.add(row)
+            reservation_map[str(source["source_id"])] = new_id
+
+        for source in data["unavailable_blocks"]:
+            db.add(UnavailableBlock(
+                id=str(uuid.uuid4()),
+                academy_id=academy_id,
+                room_id=room_map[str(source["room_source_id"])],
+                start_at=_backup_datetime(source["start_at"], "예약불가 시작시간"),
+                end_at=_backup_datetime(source["end_at"], "예약불가 종료시간"),
+                reason=source.get("reason"),
+                created_at=_backup_datetime(source["created_at"], "예약불가 생성일"),
+            ))
+
+        db.flush()
+        now = now_utc()
+        for source in data["practice_journals"]:
+            user_source_id = source.get("user_source_id")
+            db.execute(practice_journals_table.insert().values(
+                id=str(uuid.uuid4()),
+                academy_id=academy_id,
+                user_id=user_map.get(str(user_source_id)) if user_source_id is not None else None,
+                reservation_id=reservation_map[str(source["reservation_source_id"])],
+                content=str(source["content"]),
+                authored_by=str(source.get("authored_by") or "student"),
+                created_at=_backup_datetime(source["created_at"], "연습일지 생성일") or now,
+                updated_at=_backup_datetime(source["updated_at"], "연습일지 수정일") or now,
+            ))
+
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="백업 데이터를 복원하는 중 중복 데이터가 확인되었습니다. 현재 데이터는 변경되지 않았습니다.") from exc
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="백업 복원에 실패했습니다. 현재 데이터는 변경되지 않았습니다.") from exc
+
+    return {
+        "ok": True,
+        "message": "운영데이터 복원이 완료되었습니다.",
+        "counts": {
+            "member_categories": len(data["member_categories"]),
+            "authorized_users": len(data["authorized_users"]),
+            "rooms": len(data["rooms"]),
+            "reservations": len(data["reservations"]),
+            "practice_journals": len(data["practice_journals"]),
+        },
+    }
 
 
 @app.post("/api/admin/password")

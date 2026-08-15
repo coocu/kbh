@@ -52,6 +52,18 @@ class AcademyDeleteRequest(BaseModel):
     academy_id: int
 
 
+class AcademyUpdateRequest(BaseModel):
+    registration_token: str = Field(min_length=1)
+    academy_id: int
+    academy_name: str = Field(min_length=1, max_length=100)
+
+
+class AcademyStatusRequest(BaseModel):
+    registration_token: str = Field(min_length=1)
+    academy_id: int
+    is_active: bool
+
+
 class AuthorizedUserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     phone_last4: str

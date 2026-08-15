@@ -21,8 +21,14 @@
     button.danger { color:#fff; background:#ff453a; border-color:#ff453a; font-weight:700; }
     .academy-delete-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid color-mix(in srgb,CanvasText 14%,transparent); }
     .academy-delete-row:last-child { border-bottom:0; }
-    .academy-delete-row strong { flex:1; word-break:break-word; }
-    .academy-delete-row button { width:auto; flex:0 0 auto; padding:10px 14px; }
+    .academy-delete-info { min-width:0; flex:1; }
+    .academy-delete-row strong { display:block; word-break:break-word; }
+    .academy-status { margin-top:4px; font-size:13px; opacity:.68; }
+    .academy-delete-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+    .academy-delete-row button { width:auto; flex:0 0 auto; padding:9px 11px; font-size:14px; }
+    .management-search { margin:0 0 10px; }
+    .management-tabs { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
+    .management-tabs button.active { background:#0a84ff; color:#fff; border-color:#0a84ff; font-weight:700; }
     .forgot { display:block; text-align:center; margin-top:16px; color:#0a84ff; text-decoration:none; font-size:14px; }
     .notice { border-radius:12px; padding:10px 12px; margin-bottom:12px; font-size:13px; }
     .error { background:color-mix(in srgb,#ff453a 15%,transparent); color:#ff6961; }
@@ -115,8 +121,11 @@
       </div>
 
       <div id="deleteAcademyStep" class="hidden">
-        <div class="step-title">2. 삭제할 학원 선택</div>
-        <p class="muted">학원을 삭제하면 해당 학원의 녹음실, 원생/강사, 예약, 예약불가 시간, 관리자 비밀번호 데이터가 모두 삭제됩니다.</p>
+        <input id="academyManagementSearch" class="management-search" autocomplete="off" placeholder="검색" oninput="renderManagedAcademies()">
+        <div class="management-tabs">
+          <button id="managementActiveTab" class="active" type="button" onclick="setManagementTab(true)">활성화</button>
+          <button id="managementInactiveTab" type="button" onclick="setManagementTab(false)">비활성화</button>
+        </div>
         <div id="deleteAcademyList"></div>
       </div>
     </div>
@@ -125,6 +134,8 @@
 <script>
 let registrationToken = null;
 let deletionToken = null;
+let managedAcademies = [];
+let managementActiveState = true;
 
 function showRegisterError(message) {
   const box = document.getElementById('registerError');
@@ -234,6 +245,10 @@ function showDeleteAcademyError(message) {
 
 function openDeleteAcademy() {
   deletionToken = null;
+  managedAcademies = [];
+  managementActiveState = true;
+  document.getElementById('deleteAcademyTitle').textContent = '학원삭제';
+  document.getElementById('academyManagementSearch').value = '';
   showDeleteAcademyError('');
   document.getElementById('deleteLicenseKey').value = '';
   document.getElementById('deleteVerifyStep').classList.remove('hidden');
@@ -256,17 +271,51 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
+function syncLoginAcademySelect() {
+  const select = document.getElementById('academySelect');
+  const selected = select.value;
+  const activeRows = managedAcademies.filter(row => row.is_active).sort((a,b)=>a.name.localeCompare(b.name,'ko-KR'));
+  select.innerHTML = '<option value="">학원 선택</option>' + activeRows.map(row =>
+    `<option value="${row.id}">${escapeHtml(row.name)}</option>`
+  ).join('');
+  if (activeRows.some(row => String(row.id) === selected)) select.value = selected;
+}
+
+function setManagementTab(isActive) {
+  managementActiveState = !!isActive;
+  document.getElementById('managementActiveTab').classList.toggle('active', managementActiveState);
+  document.getElementById('managementInactiveTab').classList.toggle('active', !managementActiveState);
+  renderManagedAcademies();
+}
+
+function renderManagedAcademies() {
+  const list = document.getElementById('deleteAcademyList');
+  const keyword = document.getElementById('academyManagementSearch').value.trim().toLocaleLowerCase('ko-KR');
+  let rows = managedAcademies.filter(row => !!row.is_active === managementActiveState);
+  if (keyword) {
+    rows = rows.filter(row => String(row.name || '').toLocaleLowerCase('ko-KR').includes(keyword));
+  }
+  rows.sort((a,b)=>a.name.localeCompare(b.name,'ko-KR'));
+
+  list.innerHTML = rows.length ? rows.map(academy => `
+    <div class="academy-delete-row">
+      <div class="academy-delete-info">
+        <strong>${escapeHtml(academy.name)}</strong>
+        <div class="academy-status">${academy.is_active ? '활성화' : '비활성화'}</div>
+      </div>
+      <div class="academy-delete-actions">
+        <button type="button" onclick='renameAcademy(${JSON.stringify(academy.id)}, ${JSON.stringify(academy.name)})'>수정</button>
+        <button type="button" onclick='changeAcademyStatus(${JSON.stringify(academy.id)}, ${academy.is_active ? 'false' : 'true'}, ${JSON.stringify(academy.name)})'>${academy.is_active ? '비활성화' : '활성화'}</button>
+        <button class="danger" type="button" onclick='deleteAcademy(${JSON.stringify(academy.id)}, ${JSON.stringify(academy.name)})'>삭제</button>
+      </div>
+    </div>`).join('') : '<p class="muted">검색 결과가 없습니다.</p>';
+}
+
 async function loadDeleteAcademies() {
   if (!deletionToken) throw new Error('인증키를 다시 확인해 주세요.');
-  const data = await jsonPost('/api/v1/academy-management/list', {registration_token: deletionToken});
-  const list = document.getElementById('deleteAcademyList');
-  list.innerHTML = data.length
-    ? data.map(academy => `
-        <div class="academy-delete-row">
-          <strong>${escapeHtml(academy.name)}</strong>
-          <button class="danger" type="button" onclick='deleteAcademy(${JSON.stringify(academy.id)}, ${JSON.stringify(academy.name)})'>삭제</button>
-        </div>`).join('')
-    : '<p class="muted">등록된 학원이 없습니다.</p>';
+  managedAcademies = await jsonPost('/api/v1/academy-management/list', {registration_token: deletionToken});
+  syncLoginAcademySelect();
+  renderManagedAcademies();
 }
 
 async function verifyDeleteKey() {
@@ -279,9 +328,10 @@ async function verifyDeleteKey() {
   showDeleteAcademyError('');
 
   try {
-    const data = await jsonPost('/api/v1/academy-registration/verify', {license_key:key});
-    deletionToken = data.registration_token;
+    const data = await jsonPost('/api/v1/academy-management/verify', {license_key:key});
+    deletionToken = data.management_token;
     await loadDeleteAcademies();
+    document.getElementById('deleteAcademyTitle').textContent = '학원관리';
     document.getElementById('deleteVerifyStep').classList.add('hidden');
     document.getElementById('deleteAcademyStep').classList.remove('hidden');
   } catch (e) {
@@ -289,6 +339,44 @@ async function verifyDeleteKey() {
   } finally {
     button.disabled = false;
     button.textContent = '인증하기';
+  }
+}
+
+async function renameAcademy(academyId, academyName) {
+  if (!deletionToken) return showDeleteAcademyError('인증키를 다시 확인해 주세요.');
+  const value = prompt('변경할 학원 이름을 입력해 주세요.', academyName);
+  if (value === null) return;
+  const newName = value.trim();
+  if (!newName) return showDeleteAcademyError('학원 이름을 입력해 주세요.');
+  if (newName === academyName) return;
+
+  showDeleteAcademyError('');
+  try {
+    await jsonPost('/api/v1/academy-management/update', {
+      registration_token: deletionToken,
+      academy_id: academyId,
+      academy_name: newName
+    });
+    await loadDeleteAcademies();
+  } catch (e) {
+    showDeleteAcademyError(e.message);
+  }
+}
+
+async function changeAcademyStatus(academyId, isActive, academyName) {
+  if (!deletionToken) return showDeleteAcademyError('인증키를 다시 확인해 주세요.');
+  const action = isActive ? '활성화' : '비활성화';
+  if (!confirm(`${academyName}을(를) ${action}하시겠습니까?`)) return;
+  showDeleteAcademyError('');
+  try {
+    await jsonPost('/api/v1/academy-management/status', {
+      registration_token: deletionToken,
+      academy_id: academyId,
+      is_active: isActive
+    });
+    await loadDeleteAcademies();
+  } catch (e) {
+    showDeleteAcademyError(e.message);
   }
 }
 
@@ -304,9 +392,6 @@ async function deleteAcademy(academyId, academyName) {
       academy_id: academyId
     });
     await loadDeleteAcademies();
-
-    const option = document.querySelector(`#academySelect option[value="${academyId}"]`);
-    if (option) option.remove();
     alert(`${academyName} 학원이 삭제되었습니다.`);
   } catch (e) {
     showDeleteAcademyError(e.message);

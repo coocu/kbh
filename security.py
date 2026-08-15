@@ -22,6 +22,7 @@ _serializer = URLSafeTimedSerializer(_secret, salt="recording-admin-session-v3")
 _app_serializer = URLSafeTimedSerializer(_secret, salt="recording-app-token-v3")
 _recovery_serializer = URLSafeTimedSerializer(_secret, salt="recording-admin-recovery-v3")
 _registration_serializer = URLSafeTimedSerializer(_secret, salt="recording-academy-registration-v1")
+_management_serializer = URLSafeTimedSerializer(_secret, salt="recording-academy-management-v1")
 
 
 def hash_password(password: str) -> str:
@@ -62,6 +63,17 @@ def _current_admin_password_version(academy_id: int) -> str:
         return admin_password_version(credential.password_hash)
 
 
+def _ensure_academy_active(academy_id: int) -> None:
+    # 비활성화된 학원은 기존 로그인 세션/앱 토큰이 남아 있어도 사용할 수 없게 한다.
+    from db import SessionLocal
+    from models import Academy
+
+    with SessionLocal() as db:
+        academy = db.get(Academy, academy_id)
+        if academy is None or not academy.is_active:
+            raise HTTPException(status_code=401, detail="현재 비활성화된 학원입니다.")
+
+
 def create_admin_session(academy_id: int, password_hash: str) -> str:
     return _serializer.dumps({
         "role": "admin",
@@ -80,6 +92,7 @@ def _validate_admin_data(data: dict) -> dict:
 
     if data.get("password_version") != _current_admin_password_version(academy_id):
         raise HTTPException(status_code=401, detail="관리자 비밀번호가 변경되었습니다. 다시 로그인해 주세요.")
+    _ensure_academy_active(academy_id)
     return data
 
 
@@ -157,6 +170,24 @@ def verify_academy_registration_token(token: str) -> dict:
     return data
 
 
+def create_academy_management_token() -> str:
+    return _management_serializer.dumps({
+        "scope": "academy_management",
+        "nonce": secrets.token_urlsafe(12),
+    })
+
+
+def verify_academy_management_token(token: str) -> dict:
+    try:
+        data = _management_serializer.loads(token, max_age=REGISTRATION_TOKEN_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        raise HTTPException(status_code=401, detail="학원관리 인증 시간이 만료되었습니다. 인증키를 다시 확인해 주세요.")
+
+    if data.get("scope") != "academy_management":
+        raise HTTPException(status_code=403, detail="잘못된 학원관리 인증입니다.")
+    return data
+
+
 def create_app_token(academy_id: int, academy_name: str, name: str, phone_last4: str) -> str:
     return _app_serializer.dumps({
         "academy_id": academy_id,
@@ -190,4 +221,5 @@ def require_app_token(request: Request) -> dict:
 
     if data.get("scope") != "reservation_app" or not isinstance(data.get("academy_id"), int):
         raise HTTPException(status_code=403, detail="잘못된 앱 인증입니다.")
+    _ensure_academy_active(data["academy_id"])
     return data
