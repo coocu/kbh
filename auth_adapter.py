@@ -11,7 +11,7 @@ class AuthNotConfigured(RuntimeError):
 
 async def verify_license_key(license_key: str) -> bool:
     """
-    기존 Pocket 인증 서버의 실제 프로토콜을 그대로 사용한다.
+    기존 인증 서버의 실제 프로토콜을 그대로 사용한다.
 
     POST /app/check
     JSON: {"code": "<인증키>"}
@@ -23,7 +23,7 @@ async def verify_license_key(license_key: str) -> bool:
     if not candidate:
         return False
     if not AUTH_URL:
-        raise AuthNotConfigured("Pocket 인증 서버 주소가 설정되어 있지 않습니다.")
+        raise AuthNotConfigured("인증 서버 주소가 설정되어 있지 않습니다.")
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -33,7 +33,7 @@ async def verify_license_key(license_key: str) -> bool:
                 headers={"Content-Type": "application/json"},
             )
     except httpx.HTTPError as exc:
-        raise AuthNotConfigured("Pocket 인증 서버에 연결할 수 없습니다.") from exc
+        raise AuthNotConfigured("인증 서버에 연결할 수 없습니다.") from exc
 
     if not (200 <= response.status_code <= 299):
         return False
@@ -41,7 +41,7 @@ async def verify_license_key(license_key: str) -> bool:
     try:
         data = response.json()
     except ValueError as exc:
-        raise AuthNotConfigured("Pocket 인증 서버 응답 형식이 올바르지 않습니다.") from exc
+        raise AuthNotConfigured("인증 서버 응답 형식이 올바르지 않습니다.") from exc
 
     token = data.get("token")
     return token is not None and bool(str(token).strip())

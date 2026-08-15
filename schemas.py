@@ -43,6 +43,15 @@ class AcademyCreateRequest(BaseModel):
         return validate_last4_value(value)
 
 
+class AcademyManagementRequest(BaseModel):
+    registration_token: str = Field(min_length=1)
+
+
+class AcademyDeleteRequest(BaseModel):
+    registration_token: str = Field(min_length=1)
+    academy_id: int
+
+
 class AuthorizedUserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=40)
     phone_last4: str

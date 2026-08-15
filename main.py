@@ -8,7 +8,7 @@ from dateutil.relativedelta import relativedelta
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import func, inspect, select, text
+from sqlalchemy import delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,8 @@ from db import Base, SessionLocal, engine
 from models import Academy, AdminCredential, AuthorizedUser, Reservation, Room, UnavailableBlock
 from schemas import (
     AcademyCreateRequest,
+    AcademyDeleteRequest,
+    AcademyManagementRequest,
     AcademyRegistrationVerifyRequest,
     AdminLoginRequest,
     AuthorizedUserCreate,
@@ -374,6 +376,62 @@ def register_academy(payload: AcademyCreateRequest, db: Session = Depends(get_db
         raise HTTPException(status_code=409, detail="이미 등록된 학원 이름입니다.")
 
     return academy_dict(academy)
+
+
+@app.post("/api/v1/academy-management/list")
+def list_academies_for_management(payload: AcademyManagementRequest, db: Session = Depends(get_db)):
+    # 인증키 검증 후 발급된 짧은 유효시간의 등록 토큰만 허용한다.
+    verify_academy_registration_token(payload.registration_token)
+    rows = db.scalars(
+        select(Academy)
+        .where(Academy.is_active.is_(True))
+        .order_by(Academy.name.asc(), Academy.id.asc())
+    ).all()
+    return [academy_dict(row) for row in rows]
+
+
+def _delete_legacy_academy_data_if_needed(db: Session, academy_name: str) -> None:
+    # 최초 단일학원 데이터를 다중학원 DB로 이전했던 학원을 삭제하는 경우,
+    # 남아 있는 구형 테이블 데이터도 함께 지워 서버 재시작 때 다시 복원되지 않게 한다.
+    if academy_name != LEGACY_ACADEMY_NAME:
+        return
+
+    tables = set(inspect(engine).get_table_names())
+    for table_name in (
+        "unavailable_blocks",
+        "reservations",
+        "authorized_users",
+        "rooms",
+        "admin_credentials",
+    ):
+        if table_name in tables:
+            db.execute(text(f"DELETE FROM {table_name}"))
+
+
+@app.post("/api/v1/academy-management/delete")
+def delete_academy(payload: AcademyDeleteRequest, db: Session = Depends(get_db)):
+    # 삭제 화면 진입 때 인증키로 발급받은 토큰을 다시 검증한다.
+    verify_academy_registration_token(payload.registration_token)
+    academy = get_academy(db, payload.academy_id)
+    academy_name = academy.name
+
+    # 학원에 속한 자료를 자식 -> 부모 순서로 명시적으로 삭제한다.
+    # DB의 cascade 설정 여부에 기대지 않아 예약/녹음실 FK 충돌을 피한다.
+    db.execute(delete(UnavailableBlock).where(UnavailableBlock.academy_id == academy.id))
+    db.execute(delete(Reservation).where(Reservation.academy_id == academy.id))
+    db.execute(delete(AuthorizedUser).where(AuthorizedUser.academy_id == academy.id))
+    db.execute(delete(AdminCredential).where(AdminCredential.academy_id == academy.id))
+    db.execute(delete(Room).where(Room.academy_id == academy.id))
+    db.delete(academy)
+
+    _delete_legacy_academy_data_if_needed(db, academy_name)
+    db.commit()
+
+    return {
+        "deleted": True,
+        "academy_id": payload.academy_id,
+        "academy_name": academy_name,
+    }
 
 
 # -----------------------------

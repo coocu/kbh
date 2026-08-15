@@ -17,6 +17,12 @@
     button { cursor:pointer; }
     button.primary { border-color:#0a84ff; background:#0a84ff; color:#fff; font-weight:700; }
     button.secondary { margin-top:10px; background:transparent; color:#0a84ff; border-color:color-mix(in srgb,#0a84ff 55%,transparent); font-weight:700; }
+    button.delete-academy { margin-top:10px; background:transparent; color:#ff453a; border-color:color-mix(in srgb,#ff453a 55%,transparent); font-weight:700; }
+    button.danger { color:#fff; background:#ff453a; border-color:#ff453a; font-weight:700; }
+    .academy-delete-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 0; border-bottom:1px solid color-mix(in srgb,CanvasText 14%,transparent); }
+    .academy-delete-row:last-child { border-bottom:0; }
+    .academy-delete-row strong { flex:1; word-break:break-word; }
+    .academy-delete-row button { width:auto; flex:0 0 auto; padding:10px 14px; }
     .forgot { display:block; text-align:center; margin-top:16px; color:#0a84ff; text-decoration:none; font-size:14px; }
     .notice { border-radius:12px; padding:10px 12px; margin-bottom:12px; font-size:13px; }
     .error { background:color-mix(in srgb,#ff453a 15%,transparent); color:#ff6961; }
@@ -59,6 +65,7 @@
     <input name="password" type="password" autocomplete="current-password" placeholder="관리자 비밀번호" required>
     <button class="primary" type="submit">로그인</button>
     <button class="secondary" type="button" onclick="openRegister()">학원등록</button>
+    <button class="delete-academy" type="button" onclick="openDeleteAcademy()">학원삭제</button>
     <a class="forgot" href="#" onclick="openForgot(event)">비밀번호를 잊으셨나요?</a>
   </form>
 
@@ -73,7 +80,7 @@
 
       <div id="verifyStep">
         <div class="step-title">1. 인증키 확인</div>
-        <p class="muted">Pocket 인증키를 입력해 학원 등록 권한을 확인합니다.</p>
+        <p class="muted">인증키를 입력해 학원 등록 권한을 확인합니다.</p>
         <input id="licenseKey" autocomplete="off" placeholder="인증키">
         <button id="verifyButton" class="primary" type="button" onclick="verifyKey()">인증하기</button>
       </div>
@@ -91,8 +98,33 @@
     </div>
   </div>
 
+  <div id="deleteAcademyModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteAcademyTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="deleteAcademyTitle">학원삭제</h2>
+        <button class="close" type="button" onclick="closeDeleteAcademy()">닫기</button>
+      </div>
+
+      <div id="deleteAcademyError" class="notice error hidden"></div>
+
+      <div id="deleteVerifyStep">
+        <div class="step-title">1. 인증키 확인</div>
+        <p class="muted">인증키를 입력해 학원 삭제 권한을 확인합니다.</p>
+        <input id="deleteLicenseKey" autocomplete="off" placeholder="인증키">
+        <button id="deleteVerifyButton" class="primary" type="button" onclick="verifyDeleteKey()">인증하기</button>
+      </div>
+
+      <div id="deleteAcademyStep" class="hidden">
+        <div class="step-title">2. 삭제할 학원 선택</div>
+        <p class="muted">학원을 삭제하면 해당 학원의 녹음실, 원생/강사, 예약, 예약불가 시간, 관리자 비밀번호 데이터가 모두 삭제됩니다.</p>
+        <div id="deleteAcademyList"></div>
+      </div>
+    </div>
+  </div>
+
 <script>
 let registrationToken = null;
+let deletionToken = null;
 
 function showRegisterError(message) {
   const box = document.getElementById('registerError');
@@ -194,8 +226,99 @@ async function registerAcademy() {
   }
 }
 
+function showDeleteAcademyError(message) {
+  const box = document.getElementById('deleteAcademyError');
+  box.textContent = message || '';
+  box.classList.toggle('hidden', !message);
+}
+
+function openDeleteAcademy() {
+  deletionToken = null;
+  showDeleteAcademyError('');
+  document.getElementById('deleteLicenseKey').value = '';
+  document.getElementById('deleteVerifyStep').classList.remove('hidden');
+  document.getElementById('deleteAcademyStep').classList.add('hidden');
+  document.getElementById('deleteAcademyList').innerHTML = '';
+  document.getElementById('deleteAcademyModal').classList.add('open');
+  setTimeout(() => document.getElementById('deleteLicenseKey').focus(), 80);
+}
+
+function closeDeleteAcademy() {
+  document.getElementById('deleteAcademyModal').classList.remove('open');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+async function loadDeleteAcademies() {
+  if (!deletionToken) throw new Error('인증키를 다시 확인해 주세요.');
+  const data = await jsonPost('/api/v1/academy-management/list', {registration_token: deletionToken});
+  const list = document.getElementById('deleteAcademyList');
+  list.innerHTML = data.length
+    ? data.map(academy => `
+        <div class="academy-delete-row">
+          <strong>${escapeHtml(academy.name)}</strong>
+          <button class="danger" type="button" onclick='deleteAcademy(${JSON.stringify(academy.id)}, ${JSON.stringify(academy.name)})'>삭제</button>
+        </div>`).join('')
+    : '<p class="muted">등록된 학원이 없습니다.</p>';
+}
+
+async function verifyDeleteKey() {
+  const key = document.getElementById('deleteLicenseKey').value.trim();
+  if (!key) return showDeleteAcademyError('인증키를 입력해 주세요.');
+
+  const button = document.getElementById('deleteVerifyButton');
+  button.disabled = true;
+  button.textContent = '확인 중...';
+  showDeleteAcademyError('');
+
+  try {
+    const data = await jsonPost('/api/v1/academy-registration/verify', {license_key:key});
+    deletionToken = data.registration_token;
+    await loadDeleteAcademies();
+    document.getElementById('deleteVerifyStep').classList.add('hidden');
+    document.getElementById('deleteAcademyStep').classList.remove('hidden');
+  } catch (e) {
+    showDeleteAcademyError(e.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '인증하기';
+  }
+}
+
+async function deleteAcademy(academyId, academyName) {
+  if (!deletionToken) return showDeleteAcademyError('인증키를 다시 확인해 주세요.');
+  const message = `${academyName} 학원을 삭제하시겠습니까?\n\n해당 학원의 녹음실, 원생/강사, 예약, 예약불가 시간, 관리자 정보가 모두 삭제되며 복구할 수 없습니다.`;
+  if (!confirm(message)) return;
+
+  showDeleteAcademyError('');
+  try {
+    await jsonPost('/api/v1/academy-management/delete', {
+      registration_token: deletionToken,
+      academy_id: academyId
+    });
+    await loadDeleteAcademies();
+
+    const option = document.querySelector(`#academySelect option[value="${academyId}"]`);
+    if (option) option.remove();
+    alert(`${academyName} 학원이 삭제되었습니다.`);
+  } catch (e) {
+    showDeleteAcademyError(e.message);
+  }
+}
+
 document.getElementById('registerModal').addEventListener('click', (event) => {
   if (event.target.id === 'registerModal') closeRegister();
+});
+
+document.getElementById('deleteAcademyModal').addEventListener('click', (event) => {
+  if (event.target.id === 'deleteAcademyModal') closeDeleteAcademy();
 });
 </script>
 </body>
