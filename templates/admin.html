@@ -942,15 +942,44 @@
   <div id="practiceCreateModal" class="modal-backdrop" onclick="if(event.target===this) closeAdminPracticeJournalCreate()">
     <div class="modal-card">
       <h2>연습일지 등록</h2>
+
       <div class="field">
-        <label class="muted">연습이 끝난 예약</label>
-        <select id="practiceCreateReservation"></select>
+        <label class="muted">등록 방식</label>
+        <select id="practiceCreateMode" onchange="changeAdminPracticeCreateMode()">
+          <option value="manual">날짜/시간 직접 등록</option>
+          <option value="reservation">종료된 예약에서 등록</option>
+        </select>
       </div>
+
+      <div id="practiceCreateManualFields" style="margin-top:10px">
+        <div class="field">
+          <label class="muted">연습 날짜</label>
+          <input id="practiceCreateDate" type="date">
+        </div>
+        <div class="grid-2" style="margin-top:10px">
+          <div class="field">
+            <label class="muted">시작 시간</label>
+            <input id="practiceCreateStartTime" type="time">
+          </div>
+          <div class="field">
+            <label class="muted">종료 시간</label>
+            <input id="practiceCreateEndTime" type="time">
+          </div>
+        </div>
+      </div>
+
+      <div id="practiceCreateReservationFields" class="hidden" style="margin-top:10px">
+        <div class="field">
+          <label class="muted">종료된 예약</label>
+          <select id="practiceCreateReservation"></select>
+        </div>
+      </div>
+
       <div class="field" style="margin-top:10px">
         <label class="muted">연습내용</label>
         <textarea id="practiceCreateContent" maxlength="3000" placeholder="오늘 연습한 내용, 어려웠던 점, 다음 목표 등을 입력해 주세요."></textarea>
       </div>
-      <div class="muted" style="margin-top:7px">관리자가 먼저 등록한 예약은 학생 앱에서 작성 팝업이 나오지 않습니다.</div>
+      <div id="practiceCreateHelp" class="muted" style="margin-top:7px">관리자가 날짜와 시간을 직접 지정해 연습일지를 등록합니다.</div>
       <div class="modal-actions">
         <button type="button" onclick="closeAdminPracticeJournalCreate()">취소</button>
         <button type="button" class="primary" onclick="saveAdminPracticeJournalCreate()">등록</button>
@@ -2239,26 +2268,94 @@ async function loadPracticeSelectedUser() {
   } catch(e) { alert(e.message); }
 }
 
+function localDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function localTimeInputValue(hour, minute = 0) {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function changeAdminPracticeCreateMode() {
+  const mode = document.getElementById('practiceCreateMode').value;
+  const isManual = mode === 'manual';
+  document.getElementById('practiceCreateManualFields').classList.toggle('hidden', !isManual);
+  document.getElementById('practiceCreateReservationFields').classList.toggle('hidden', isManual);
+  document.getElementById('practiceCreateHelp').textContent = isManual
+    ? '관리자가 날짜와 시간을 직접 지정해 연습일지를 등록합니다.'
+    : '종료된 예약에 등록하면 학생 앱의 해당 미작성 안내가 사라집니다.';
+}
+
 function openAdminPracticeJournalCreate() {
   if (!practiceSelectedUserId) return alert('학생을 먼저 선택해 주세요.');
-  if (!practicePendingRows.length) return alert('연습이 끝났고 아직 일지가 없는 예약이 없습니다.');
-  document.getElementById('practiceCreateReservation').innerHTML = practicePendingRows.map(row => `
-    <option value="${escapeHtml(row.reservation_id)}">${practiceDateText(row.start_at)} · ${escapeHtml(row.room_name || '녹음실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</option>
-  `).join('');
+
+  const mode = document.getElementById('practiceCreateMode');
+  const reservationOption = mode.querySelector('option[value="reservation"]');
+  reservationOption.disabled = !practicePendingRows.length;
+
+  document.getElementById('practiceCreateReservation').innerHTML = practicePendingRows.length
+    ? practicePendingRows.map(row => `
+        <option value="${escapeHtml(row.reservation_id)}">${practiceDateText(row.start_at)} · ${escapeHtml(row.room_name || '녹음실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</option>
+      `).join('')
+    : '<option value="">등록 가능한 종료 예약이 없습니다.</option>';
+
+  mode.value = 'manual';
+
+  const now = new Date();
+  document.getElementById('practiceCreateDate').value = localDateInputValue(now);
+  let startHour = now.getHours();
+  if (startHour >= 23) startHour = 22;
+  document.getElementById('practiceCreateStartTime').value = localTimeInputValue(startHour);
+  document.getElementById('practiceCreateEndTime').value = localTimeInputValue(startHour + 1);
   document.getElementById('practiceCreateContent').value = '';
+
+  changeAdminPracticeCreateMode();
   document.getElementById('practiceCreateModal').classList.add('active');
 }
-function closeAdminPracticeJournalCreate() { document.getElementById('practiceCreateModal').classList.remove('active'); }
+
+function closeAdminPracticeJournalCreate() {
+  document.getElementById('practiceCreateModal').classList.remove('active');
+}
 
 async function saveAdminPracticeJournalCreate() {
-  const reservation_id = document.getElementById('practiceCreateReservation').value;
+  const mode = document.getElementById('practiceCreateMode').value;
   const content = document.getElementById('practiceCreateContent').value.trim();
-  if (!reservation_id || !content) return alert('예약과 연습내용을 확인해 주세요.');
+  if (!content) return alert('연습내용을 입력해 주세요.');
+
+  const payload = {user_id: practiceSelectedUserId, content};
+
+  if (mode === 'reservation') {
+    const reservation_id = document.getElementById('practiceCreateReservation').value;
+    if (!reservation_id) return alert('등록할 종료 예약을 선택해 주세요.');
+    payload.reservation_id = reservation_id;
+  } else {
+    const date = document.getElementById('practiceCreateDate').value;
+    const startTime = document.getElementById('practiceCreateStartTime').value;
+    const endTime = document.getElementById('practiceCreateEndTime').value;
+    if (!date || !startTime || !endTime) return alert('연습 날짜와 시작/종료 시간을 입력해 주세요.');
+
+    const start = new Date(`${date}T${startTime}:00`);
+    const end = new Date(`${date}T${endTime}:00`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return alert('연습 날짜와 시간을 확인해 주세요.');
+    if (end <= start) return alert('종료 시간은 시작 시간보다 늦어야 합니다.');
+
+    payload.start_at = start.toISOString();
+    payload.end_at = end.toISOString();
+  }
+
   try {
-    await api('/api/admin/practice-journals', {method:'POST', body:JSON.stringify({user_id:practiceSelectedUserId,reservation_id,content})});
+    await api('/api/admin/practice-journals', {
+      method:'POST',
+      body:JSON.stringify(payload)
+    });
     closeAdminPracticeJournalCreate();
     await loadPracticeSelectedUser();
-  } catch(e) { alert(e.message); }
+  } catch(e) {
+    alert(e.message);
+  }
 }
 
 function openAdminPracticeJournalEdit(journalId) {

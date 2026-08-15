@@ -78,7 +78,10 @@ class PracticeJournalCreatePayload(BaseModel):
 
 class AdminPracticeJournalCreatePayload(BaseModel):
     user_id: int
-    reservation_id: str = Field(min_length=1, max_length=36)
+    # 기존 예약 연결 방식 유지 + 관리자 날짜/시간 직접등록 추가
+    reservation_id: str | None = Field(default=None, min_length=1, max_length=36)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
     content: str = Field(min_length=1, max_length=3000)
 
     @field_validator("content")
@@ -115,6 +118,23 @@ practice_journals_table = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     UniqueConstraint("reservation_id", name="uq_academy_practice_journal_reservation"),
+)
+
+
+# 예약과 연결하지 않고 관리자가 날짜/시간을 직접 지정하는 연습일지.
+# 기존 연습일지 테이블은 변경하지 않아 기존 DB/기능을 그대로 유지한다.
+manual_practice_journals_table = Table(
+    "academy_manual_practice_journals",
+    Base.metadata,
+    Column("id", String(36), primary_key=True),
+    Column("academy_id", Integer, ForeignKey("academies.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("user_id", Integer, ForeignKey("academy_authorized_users.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("start_at", DateTime(timezone=True), nullable=False, index=True),
+    Column("end_at", DateTime(timezone=True), nullable=False, index=True),
+    Column("content", Text, nullable=False),
+    Column("authored_by", String(20), nullable=False, default="admin"),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -255,6 +275,23 @@ def _practice_journal_dict(db: Session, row, reservation: Reservation) -> dict:
     }
 
 
+def _manual_practice_journal_dict(row) -> dict:
+    # 현재 iOS PracticeJournalItem의 필수 필드를 그대로 유지한다.
+    return {
+        "id": row["id"],
+        "reservation_id": row["id"],
+        "room_id": 0,
+        "room_name": "관리자 등록",
+        "start_at": row["start_at"],
+        "end_at": row["end_at"],
+        "duration_hours": _practice_duration_hours(row["start_at"], row["end_at"]),
+        "content": row["content"],
+        "authored_by": row["authored_by"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
 def _practice_pending_dict(db: Session, reservation: Reservation) -> dict:
     room_name = db.scalar(select(Room.name).where(Room.id == reservation.room_id))
     return {
@@ -277,7 +314,25 @@ def _practice_total_hours_for_member(db: Session, academy_id: int, name: str, ph
             Reservation.end_at <= now_utc(),
         )
     ).all()
-    return sum(_practice_duration_hours(row.start_at, row.end_at) for row in rows)
+    total = sum(_practice_duration_hours(row.start_at, row.end_at) for row in rows)
+
+    member = db.scalar(
+        select(AuthorizedUser).where(
+            AuthorizedUser.academy_id == academy_id,
+            AuthorizedUser.name == name,
+            AuthorizedUser.phone_last4 == phone_last4,
+        )
+    )
+    if member is not None:
+        manual_rows = db.execute(
+            select(manual_practice_journals_table).where(
+                manual_practice_journals_table.c.academy_id == academy_id,
+                manual_practice_journals_table.c.user_id == member.id,
+            )
+        ).mappings().all()
+        total += sum(_practice_duration_hours(row["start_at"], row["end_at"]) for row in manual_rows)
+
+    return total
 
 
 def _schedule_values(schedule: RoomSchedule | None) -> tuple[int, int]:
@@ -879,6 +934,7 @@ def delete_academy(payload: AcademyDeleteRequest, db: Session = Depends(get_db))
 
     # 학원에 속한 자료를 자식 -> 부모 순서로 명시적으로 삭제한다.
     db.execute(delete(UnavailableBlock).where(UnavailableBlock.academy_id == academy.id))
+    db.execute(delete(manual_practice_journals_table).where(manual_practice_journals_table.c.academy_id == academy.id))
     db.execute(delete(practice_journals_table).where(practice_journals_table.c.academy_id == academy.id))
     db.execute(delete(Reservation).where(Reservation.academy_id == academy.id))
     db.execute(delete(MemberPolicy).where(MemberPolicy.academy_id == academy.id))
@@ -1628,6 +1684,16 @@ def list_my_practice_journals(request: Request, db: Session = Depends(get_db)):
         )
         if reservation is not None:
             items.append(_practice_journal_dict(db, journal, reservation))
+
+    manual_rows = db.execute(
+        select(manual_practice_journals_table)
+        .where(
+            manual_practice_journals_table.c.academy_id == academy_id,
+            manual_practice_journals_table.c.user_id == member.id,
+        )
+        .order_by(manual_practice_journals_table.c.start_at.desc())
+    ).mappings().all()
+    items.extend(_manual_practice_journal_dict(row) for row in manual_rows)
     items.sort(key=lambda item: _aware_utc(item["start_at"]), reverse=True)
 
     return {
@@ -2293,6 +2359,16 @@ def admin_list_practice_journals(
         )
         if reservation is not None:
             items.append(_practice_journal_dict(db, journal, reservation))
+
+    manual_rows = db.execute(
+        select(manual_practice_journals_table)
+        .where(
+            manual_practice_journals_table.c.academy_id == academy_id,
+            manual_practice_journals_table.c.user_id == user.id,
+        )
+        .order_by(manual_practice_journals_table.c.start_at.desc())
+    ).mappings().all()
+    items.extend(_manual_practice_journal_dict(row) for row in manual_rows)
     items.sort(key=lambda item: _aware_utc(item["start_at"]), reverse=True)
 
     return {
@@ -2351,44 +2427,79 @@ def admin_create_practice_journal(
     if user is None:
         raise HTTPException(status_code=404, detail="회원을 찾을 수 없습니다.")
 
-    reservation = db.scalar(
-        select(Reservation).where(
-            Reservation.id == payload.reservation_id,
-            Reservation.academy_id == academy_id,
-            Reservation.nickname == user.name,
-            Reservation.phone_last4 == user.phone_last4,
+    # 기존 기능: 종료된 예약에서 등록
+    if payload.reservation_id:
+        reservation = db.scalar(
+            select(Reservation).where(
+                Reservation.id == payload.reservation_id,
+                Reservation.academy_id == academy_id,
+                Reservation.nickname == user.name,
+                Reservation.phone_last4 == user.phone_last4,
+            )
         )
-    )
-    if reservation is None:
-        raise HTTPException(status_code=404, detail="회원의 예약을 찾을 수 없습니다.")
-    if reservation.cancelled_at is not None:
-        raise HTTPException(status_code=409, detail="취소된 예약에는 연습일지를 등록할 수 없습니다.")
-    if _aware_utc(reservation.end_at) > now_utc():
-        raise HTTPException(status_code=409, detail="예약시간이 종료된 후 연습일지를 등록할 수 있습니다.")
-    if _practice_journal_for_reservation(db, reservation.id) is not None:
-        raise HTTPException(status_code=409, detail="이미 등록된 연습일지가 있습니다.")
+        if reservation is None:
+            raise HTTPException(status_code=404, detail="회원의 예약을 찾을 수 없습니다.")
+        if reservation.cancelled_at is not None:
+            raise HTTPException(status_code=409, detail="취소된 예약에는 연습일지를 등록할 수 없습니다.")
+        if _aware_utc(reservation.end_at) > now_utc():
+            raise HTTPException(status_code=409, detail="예약시간이 종료된 후 연습일지를 등록할 수 있습니다.")
+        if _practice_journal_for_reservation(db, reservation.id) is not None:
+            raise HTTPException(status_code=409, detail="이미 등록된 연습일지가 있습니다.")
+
+        now = now_utc()
+        db.execute(
+            practice_journals_table.insert().values(
+                id=str(uuid.uuid4()),
+                academy_id=academy_id,
+                user_id=user.id,
+                reservation_id=reservation.id,
+                content=payload.content,
+                authored_by="admin",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="이미 등록된 연습일지가 있습니다.")
+
+        row = _practice_journal_for_reservation(db, reservation.id)
+        return _practice_journal_dict(db, row, reservation)
+
+    # 추가 기능: 날짜/시간 직접 등록
+    if payload.start_at is None or payload.end_at is None:
+        raise HTTPException(status_code=422, detail="연습 날짜와 시작/종료 시간을 입력해 주세요.")
+
+    start_at = _aware_utc(payload.start_at)
+    end_at = _aware_utc(payload.end_at)
+    if end_at <= start_at:
+        raise HTTPException(status_code=422, detail="종료 시간은 시작 시간보다 늦어야 합니다.")
 
     now = now_utc()
+    journal_id = str(uuid.uuid4())
     db.execute(
-        practice_journals_table.insert().values(
-            id=str(uuid.uuid4()),
+        manual_practice_journals_table.insert().values(
+            id=journal_id,
             academy_id=academy_id,
             user_id=user.id,
-            reservation_id=reservation.id,
+            start_at=start_at,
+            end_at=end_at,
             content=payload.content,
             authored_by="admin",
             created_at=now,
             updated_at=now,
         )
     )
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="이미 등록된 연습일지가 있습니다.")
+    db.commit()
 
-    row = _practice_journal_for_reservation(db, reservation.id)
-    return _practice_journal_dict(db, row, reservation)
+    row = db.execute(
+        select(manual_practice_journals_table).where(
+            manual_practice_journals_table.c.id == journal_id
+        )
+    ).mappings().first()
+    return _manual_practice_journal_dict(row)
 
 
 @app.patch("/api/admin/practice-journals/{journal_id}")
@@ -2399,29 +2510,52 @@ def admin_update_practice_journal(
     db: Session = Depends(get_db),
 ):
     academy_id = _admin_academy_id(request)
+
     row = db.execute(
         select(practice_journals_table).where(
             practice_journals_table.c.id == journal_id,
             practice_journals_table.c.academy_id == academy_id,
         )
     ).mappings().first()
-    if row is None:
+
+    if row is not None:
+        db.execute(
+            practice_journals_table.update()
+            .where(practice_journals_table.c.id == journal_id)
+            .values(content=payload.content, updated_at=now_utc())
+        )
+        db.commit()
+
+        updated = db.execute(
+            select(practice_journals_table).where(practice_journals_table.c.id == journal_id)
+        ).mappings().first()
+        reservation = db.scalar(select(Reservation).where(Reservation.id == updated["reservation_id"]))
+        if reservation is None:
+            raise HTTPException(status_code=404, detail="연결된 예약을 찾을 수 없습니다.")
+        return _practice_journal_dict(db, updated, reservation)
+
+    manual_row = db.execute(
+        select(manual_practice_journals_table).where(
+            manual_practice_journals_table.c.id == journal_id,
+            manual_practice_journals_table.c.academy_id == academy_id,
+        )
+    ).mappings().first()
+    if manual_row is None:
         raise HTTPException(status_code=404, detail="연습일지를 찾을 수 없습니다.")
 
     db.execute(
-        practice_journals_table.update()
-        .where(practice_journals_table.c.id == journal_id)
+        manual_practice_journals_table.update()
+        .where(manual_practice_journals_table.c.id == journal_id)
         .values(content=payload.content, updated_at=now_utc())
     )
     db.commit()
 
     updated = db.execute(
-        select(practice_journals_table).where(practice_journals_table.c.id == journal_id)
+        select(manual_practice_journals_table).where(
+            manual_practice_journals_table.c.id == journal_id
+        )
     ).mappings().first()
-    reservation = db.scalar(select(Reservation).where(Reservation.id == updated["reservation_id"]))
-    if reservation is None:
-        raise HTTPException(status_code=404, detail="연결된 예약을 찾을 수 없습니다.")
-    return _practice_journal_dict(db, updated, reservation)
+    return _manual_practice_journal_dict(updated)
 
 
 
@@ -2475,6 +2609,9 @@ def _validate_operational_backup(payload: dict) -> dict:
     reservations = _require_backup_list(data, "reservations")
     blocks = _require_backup_list(data, "unavailable_blocks")
     journals = _require_backup_list(data, "practice_journals")
+    manual_journals = data.get("manual_practice_journals", [])
+    if not isinstance(manual_journals, list):
+        raise HTTPException(status_code=422, detail="백업 파일의 관리자 직접등록 연습일지 형식이 올바르지 않습니다.")
 
     def source_ids(rows: list, label: str) -> set:
         result = set()
@@ -2493,6 +2630,7 @@ def _validate_operational_backup(payload: dict) -> dict:
     reservation_ids = source_ids(reservations, "예약")
     source_ids(blocks, "예약불가")
     source_ids(journals, "연습일지")
+    source_ids(manual_journals, "관리자 직접등록 연습일지")
 
     for row in categories:
         if not str(row.get("name", "")).strip():
@@ -2561,6 +2699,19 @@ def _validate_operational_backup(payload: dict) -> dict:
         _backup_datetime(row.get("created_at"), "연습일지 생성일")
         _backup_datetime(row.get("updated_at"), "연습일지 수정일")
 
+    for row in manual_journals:
+        if str(row.get("user_source_id")) not in user_ids:
+            raise HTTPException(status_code=422, detail="백업 파일의 관리자 직접등록 연습일지 회원 연결정보가 올바르지 않습니다.")
+        start_at = _backup_datetime(row.get("start_at"), "관리자 직접등록 연습 시작시간")
+        end_at = _backup_datetime(row.get("end_at"), "관리자 직접등록 연습 종료시간")
+        if end_at <= start_at:
+            raise HTTPException(status_code=422, detail="백업 파일의 관리자 직접등록 연습시간 범위가 올바르지 않습니다.")
+        if not str(row.get("content", "")).strip():
+            raise HTTPException(status_code=422, detail="백업 파일의 관리자 직접등록 연습일지 내용이 올바르지 않습니다.")
+        _backup_datetime(row.get("created_at"), "관리자 직접등록 연습일지 생성일")
+        _backup_datetime(row.get("updated_at"), "관리자 직접등록 연습일지 수정일")
+
+    data["manual_practice_journals"] = manual_journals
     return data
 
 
@@ -2573,6 +2724,11 @@ def _build_operational_backup(db: Session, academy_id: int) -> dict:
     reservations = db.scalars(select(Reservation).where(Reservation.academy_id == academy_id).order_by(Reservation.created_at.asc())).all()
     blocks = db.scalars(select(UnavailableBlock).where(UnavailableBlock.academy_id == academy_id).order_by(UnavailableBlock.created_at.asc())).all()
     journals = db.execute(select(practice_journals_table).where(practice_journals_table.c.academy_id == academy_id).order_by(practice_journals_table.c.created_at.asc())).mappings().all()
+    manual_journals = db.execute(
+        select(manual_practice_journals_table)
+        .where(manual_practice_journals_table.c.academy_id == academy_id)
+        .order_by(manual_practice_journals_table.c.created_at.asc())
+    ).mappings().all()
 
     return {
         "format": BACKUP_FORMAT,
@@ -2656,6 +2812,19 @@ def _build_operational_backup(db: Session, academy_id: int) -> dict:
                 }
                 for row in journals
             ],
+            "manual_practice_journals": [
+                {
+                    "source_id": row["id"],
+                    "user_source_id": row["user_id"],
+                    "start_at": _backup_iso(row["start_at"]),
+                    "end_at": _backup_iso(row["end_at"]),
+                    "content": row["content"],
+                    "authored_by": row["authored_by"],
+                    "created_at": _backup_iso(row["created_at"]),
+                    "updated_at": _backup_iso(row["updated_at"]),
+                }
+                for row in manual_journals
+            ],
         },
     }
 
@@ -2719,6 +2888,7 @@ async def admin_restore_backup(
 
     try:
         # 현재 학원의 운영데이터만 교체한다. 학원명/활성상태/복구정보/관리자 비밀번호는 그대로 유지한다.
+        db.execute(delete(manual_practice_journals_table).where(manual_practice_journals_table.c.academy_id == academy_id))
         db.execute(delete(practice_journals_table).where(practice_journals_table.c.academy_id == academy_id))
         db.execute(delete(UnavailableBlock).where(UnavailableBlock.academy_id == academy_id))
         db.execute(delete(Reservation).where(Reservation.academy_id == academy_id))
@@ -2831,6 +3001,19 @@ async def admin_restore_backup(
                 updated_at=_backup_datetime(source["updated_at"], "연습일지 수정일") or now,
             ))
 
+        for source in data["manual_practice_journals"]:
+            db.execute(manual_practice_journals_table.insert().values(
+                id=str(uuid.uuid4()),
+                academy_id=academy_id,
+                user_id=user_map[str(source["user_source_id"])],
+                start_at=_backup_datetime(source["start_at"], "관리자 직접등록 연습 시작시간"),
+                end_at=_backup_datetime(source["end_at"], "관리자 직접등록 연습 종료시간"),
+                content=str(source["content"]),
+                authored_by=str(source.get("authored_by") or "admin"),
+                created_at=_backup_datetime(source["created_at"], "관리자 직접등록 연습일지 생성일") or now,
+                updated_at=_backup_datetime(source["updated_at"], "관리자 직접등록 연습일지 수정일") or now,
+            ))
+
         db.commit()
     except HTTPException:
         db.rollback()
@@ -2850,7 +3033,7 @@ async def admin_restore_backup(
             "authorized_users": len(data["authorized_users"]),
             "rooms": len(data["rooms"]),
             "reservations": len(data["reservations"]),
-            "practice_journals": len(data["practice_journals"]),
+            "practice_journals": len(data["practice_journals"]) + len(data["manual_practice_journals"]),
         },
     }
 
