@@ -131,6 +131,25 @@
     .member-table .actions button { padding:7px 10px; }
     .member-limit-free { opacity:.65; }
     .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+    .member-booking-summary {
+      display:grid; gap:7px; padding:12px; margin:10px 0;
+      border-radius:14px; background:color-mix(in srgb, #0a84ff 7%, transparent);
+      border:1px solid color-mix(in srgb, #0a84ff 20%, transparent);
+    }
+    .member-booking-summary strong { font-size:15px; }
+    .member-booking-policy { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .member-booking-policy .badge { font-size:12px; }
+    .member-booking-warning {
+      display:none; padding:10px 12px; margin-top:10px; border-radius:12px;
+      color:#ff9f0a; background:color-mix(in srgb, #ff9f0a 10%, transparent);
+      border:1px solid color-mix(in srgb, #ff9f0a 32%, transparent);
+      font-size:13px; font-weight:700;
+    }
+    .member-booking-warning.active { display:block; }
+    .member-booking-password { display:none; margin-top:10px; }
+    .member-booking-password.active { display:block; }
+    .member-booking-hour.disabled { opacity:.35; cursor:not-allowed; }
+    .member-booking-hour.reserved { opacity:.42; text-decoration:line-through; }
 
 
     /* iPhone / 앱 WebView에서 데스크톱 페이지처럼 보이지 않도록 터치 중심 UI */
@@ -669,6 +688,46 @@
     </div>
   </div>
 
+  <div id="memberReservationModal" class="modal-backdrop" onclick="if(event.target===this) closeMemberReservation()">
+    <div class="modal-card">
+      <div class="member-card-head">
+        <h2>회원 예약</h2>
+        <button type="button" onclick="closeMemberReservation()">닫기</button>
+      </div>
+      <input id="memberReservationUserId" type="hidden">
+
+      <div class="member-booking-summary">
+        <strong id="memberReservationMemberName">회원</strong>
+        <div id="memberReservationPolicyText" class="member-booking-policy"></div>
+      </div>
+
+      <div class="field">
+        <label class="muted">예약 날짜</label>
+        <input id="memberReservationDate" type="date" onchange="clearMemberReservationHours(); renderMemberReservationHours()">
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label class="muted">녹음실</label>
+        <select id="memberReservationRoom" onchange="clearMemberReservationHours(); renderMemberReservationHours()"></select>
+      </div>
+
+      <div class="muted" style="margin-top:10px">예약할 시간을 연속으로 선택해 주세요. 회원 제한보다 적은 시간은 그대로 예약할 수 있습니다.</div>
+      <div id="memberReservationHours" class="hour-grid"></div>
+      <div id="memberReservationSelectedText" class="muted">선택된 시간이 없습니다.</div>
+
+      <div id="memberReservationWarning" class="member-booking-warning"></div>
+      <div id="memberReservationPasswordWrap" class="field member-booking-password">
+        <label class="muted">관리자 비밀번호 · 제한 초과 추가시간 승인</label>
+        <input id="memberReservationAdminPassword" type="password" autocomplete="current-password" placeholder="관리자 비밀번호">
+        <div class="muted" style="margin-top:5px">비밀번호 승인은 이번 예약에만 적용되며 회원의 기본 시간제한은 변경하지 않습니다.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" onclick="closeMemberReservation()">취소</button>
+        <button type="button" class="primary" onclick="submitMemberReservation()">예약 등록</button>
+      </div>
+    </div>
+  </div>
+
   <section id="tab-reservations" class="tab-panel">
     <section class="card">
       <div class="row" style="justify-content:space-between">
@@ -815,6 +874,8 @@ let authorizedUserRows = [];
 let memberCategories = [];
 let blockRows = [];
 let selectedBlockHours = new Set();
+let selectedMemberReservationHours = new Set();
+let memberReservationCurrentUser = null;
 let expandedRoomStatusIds = new Set();
 
 function switchAdminTab(tabName) {
@@ -1592,6 +1653,208 @@ async function createAuthorizedUser() {
   } catch(e) { alert(e.message); }
 }
 
+function localHourDate(dateKey, hour) {
+  const [year, month, day] = String(dateKey).split('-').map(Number);
+  return new Date(year, month - 1, day, hour, 0, 0, 0);
+}
+
+function memberReservationOverlap(start, end, roomId) {
+  const reservationConflict = reservationRows.some(r =>
+    Number(r.room_id) === Number(roomId) &&
+    r.status !== '취소됨' &&
+    new Date(r.start_at) < end &&
+    new Date(r.end_at) > start
+  );
+  if (reservationConflict) return true;
+
+  return blockRows.some(b =>
+    Number(b.room_id) === Number(roomId) &&
+    new Date(b.start_at) < end &&
+    new Date(b.end_at) > start
+  );
+}
+
+function memberReservedRemainingHours(user) {
+  if (!user) return 0;
+  const now = new Date();
+  let ms = 0;
+  reservationRows.forEach(r => {
+    if (r.status === '취소됨') return;
+    if (String(r.nickname || '') !== String(user.name || '')) return;
+    if (String(r.phone_last4 || '') !== String(user.phone_last4 || '')) return;
+    const end = new Date(r.end_at);
+    if (end <= now) return;
+    const start = new Date(r.start_at) > now ? new Date(r.start_at) : now;
+    if (end > start) ms += end - start;
+  });
+  return ms / 3600000;
+}
+
+function memberReservationNeedsPassword() {
+  const user = memberReservationCurrentUser;
+  if (!user || !user.booking_limit_hours || selectedMemberReservationHours.size === 0) return false;
+  const selectedHours = selectedMemberReservationHours.size;
+  const limit = Number(user.booking_limit_hours);
+  if (selectedHours > limit) return true;
+  if (user.allow_additional_booking) return false;
+  return memberReservedRemainingHours(user) + selectedHours > limit + 1e-9;
+}
+
+function updateMemberReservationPolicyUI() {
+  const user = memberReservationCurrentUser;
+  if (!user) return;
+  const limit = user.booking_limit_hours ? `${user.booking_limit_hours}시간` : '자유';
+  const additional = user.allow_additional_booking ? '추가예약 ON' : '추가예약 OFF';
+  const reserved = memberReservedRemainingHours(user);
+  document.getElementById('memberReservationPolicyText').innerHTML = `
+    <span class="badge">기본 ${escapeHtml(limit)}</span>
+    <span class="badge">${escapeHtml(additional)}</span>
+    ${user.booking_limit_hours && !user.allow_additional_booking ? `<span class="muted">현재 남은 예약 ${reserved.toFixed(reserved % 1 ? 1 : 0)}시간</span>` : ''}`;
+
+  const selected = Array.from(selectedMemberReservationHours).sort((a,b)=>a-b);
+  const selectedText = document.getElementById('memberReservationSelectedText');
+  if (!selected.length) {
+    selectedText.textContent = '선택된 시간이 없습니다.';
+  } else {
+    const start = selected[0];
+    const end = selected[selected.length - 1] + 1;
+    selectedText.textContent = `선택: ${String(start).padStart(2,'0')}:00 ~ ${String(end).padStart(2,'0')}:00 · ${selected.length}시간`;
+  }
+
+  const needsPassword = memberReservationNeedsPassword();
+  const warning = document.getElementById('memberReservationWarning');
+  const passwordWrap = document.getElementById('memberReservationPasswordWrap');
+  if (needsPassword) {
+    warning.textContent = '회원에게 설정된 예약시간을 초과합니다. 관리자 비밀번호를 입력하면 이번 예약에 한해 추가시간을 승인할 수 있습니다.';
+    warning.classList.add('active');
+    passwordWrap.classList.add('active');
+  } else {
+    warning.classList.remove('active');
+    passwordWrap.classList.remove('active');
+    document.getElementById('memberReservationAdminPassword').value = '';
+  }
+}
+
+function clearMemberReservationHours() {
+  selectedMemberReservationHours.clear();
+  updateMemberReservationPolicyUI();
+}
+
+function toggleMemberReservationHour(hour) {
+  const dateKey = document.getElementById('memberReservationDate').value;
+  const roomId = Number(document.getElementById('memberReservationRoom').value);
+  const room = rooms.find(r => r.id === roomId);
+  if (!dateKey || !room) return;
+
+  const start = localHourDate(dateKey, hour);
+  const end = localHourDate(dateKey, hour + 1);
+  const now = new Date();
+  const openHour = Number(room.open_hour ?? 0);
+  const closeHour = Number(room.close_hour ?? 24);
+  if (room.is_paused || hour < openHour || hour >= closeHour || start < now || memberReservationOverlap(start, end, roomId)) return;
+
+  const next = new Set(selectedMemberReservationHours);
+  if (next.has(hour)) next.delete(hour); else next.add(hour);
+  const sorted = Array.from(next).sort((a,b)=>a-b);
+  const contiguous = sorted.every((value,index) => index === 0 || value === sorted[index-1] + 1);
+  if (!contiguous) {
+    alert('관리자 예약은 연속된 시간만 선택해 주세요.');
+    return;
+  }
+  selectedMemberReservationHours = next;
+  renderMemberReservationHours();
+}
+
+function renderMemberReservationHours() {
+  const container = document.getElementById('memberReservationHours');
+  if (!container) return;
+  const dateKey = document.getElementById('memberReservationDate').value;
+  const roomId = Number(document.getElementById('memberReservationRoom').value);
+  const room = rooms.find(r => r.id === roomId);
+  const now = new Date();
+
+  container.innerHTML = Array.from({length:24}, (_,hour) => {
+    let disabled = !dateKey || !room;
+    let reserved = false;
+    if (!disabled) {
+      const start = localHourDate(dateKey, hour);
+      const end = localHourDate(dateKey, hour + 1);
+      const openHour = Number(room.open_hour ?? 0);
+      const closeHour = Number(room.close_hour ?? 24);
+      reserved = memberReservationOverlap(start, end, roomId);
+      disabled = room.is_paused || hour < openHour || hour >= closeHour || start < now || reserved;
+    }
+    const selected = selectedMemberReservationHours.has(hour);
+    return `<button type="button" class="hour-button member-booking-hour ${selected?'selected':''} ${disabled?'disabled':''} ${reserved?'reserved':''}" ${disabled?'disabled':''} onclick="toggleMemberReservationHour(${hour})">${String(hour).padStart(2,'0')}시</button>`;
+  }).join('');
+  updateMemberReservationPolicyUI();
+}
+
+function openMemberReservation(id) {
+  const user = authorizedUserRows.find(u => u.id === id);
+  if (!user) return alert('회원 정보를 찾을 수 없습니다.');
+  memberReservationCurrentUser = user;
+  selectedMemberReservationHours.clear();
+  document.getElementById('memberReservationUserId').value = user.id;
+  document.getElementById('memberReservationMemberName').textContent = `${user.name} · ${user.phone_last4}`;
+  document.getElementById('memberReservationAdminPassword').value = '';
+
+  const today = localTodayKey();
+  const dateInput = document.getElementById('memberReservationDate');
+  dateInput.min = today;
+  dateInput.value = today;
+
+  const roomSelect = document.getElementById('memberReservationRoom');
+  roomSelect.innerHTML = rooms.filter(r => !r.is_paused).map(r => `<option value="${r.id}">${escapeHtml(r.name)} · ${String(r.open_hour ?? 0).padStart(2,'0')}:00~${String(r.close_hour ?? 24).padStart(2,'0')}:00</option>`).join('');
+
+  document.getElementById('memberReservationModal').classList.add('active');
+  updateMemberReservationPolicyUI();
+  renderMemberReservationHours();
+}
+
+function closeMemberReservation() {
+  document.getElementById('memberReservationModal').classList.remove('active');
+  memberReservationCurrentUser = null;
+  selectedMemberReservationHours.clear();
+  document.getElementById('memberReservationAdminPassword').value = '';
+}
+
+async function submitMemberReservation() {
+  const user = memberReservationCurrentUser;
+  if (!user) return alert('회원 정보를 찾을 수 없습니다.');
+  const dateKey = document.getElementById('memberReservationDate').value;
+  const roomId = Number(document.getElementById('memberReservationRoom').value);
+  const hours = Array.from(selectedMemberReservationHours).sort((a,b)=>a-b);
+  if (!dateKey || !roomId) return alert('날짜와 녹음실을 선택해 주세요.');
+  if (!hours.length) return alert('예약할 시간을 선택해 주세요.');
+
+  const contiguous = hours.every((value,index) => index === 0 || value === hours[index-1] + 1);
+  if (!contiguous) return alert('연속된 시간만 선택해 주세요.');
+
+  const needsPassword = memberReservationNeedsPassword();
+  const adminPassword = document.getElementById('memberReservationAdminPassword').value;
+  if (needsPassword && !adminPassword) return alert('추가시간 승인을 위해 관리자 비밀번호를 입력해 주세요.');
+
+  const start = localHourDate(dateKey, hours[0]);
+  const end = localHourDate(dateKey, hours[hours.length - 1] + 1);
+  try {
+    await api(`/api/admin/users/${user.id}/reservations`, {
+      method:'POST',
+      body:JSON.stringify({
+        room_id: roomId,
+        start_at: start.toISOString(),
+        end_at: end.toISOString(),
+        admin_password: adminPassword || null,
+      })
+    });
+    closeMemberReservation();
+    await loadAll();
+    alert(`${user.name} 회원 예약이 등록되었습니다.`);
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
 function openMemberEditor(id) {
   const row = authorizedUserRows.find(u => u.id === id);
   if (!row) return alert('회원 정보를 찾을 수 없습니다.');
@@ -1677,6 +1940,7 @@ function renderAuthorizedUsers() {
       <td data-label="예약시간 제한">${u.booking_limit_hours ? `${u.booking_limit_hours}시간` : '<span class="member-limit-free">자유</span>'}</td>
       <td data-label="관리" class="actions"><div class="mobile-actions">
         <button onclick="openMemberEditor(${u.id})">수정</button>
+        <button class="primary" onclick="openMemberReservation(${u.id})">예약</button>
         <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
       </div></td>
     </tr>`).join('') || `<tr><td colspan="5" class="muted empty-row">${emptyMessage}</td></tr>`;

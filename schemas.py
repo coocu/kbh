@@ -155,6 +155,21 @@ class ReservationMoveRequest(BaseModel):
     room_id: int
 
 
+class AdminMemberReservationCreate(BaseModel):
+    room_id: int
+    start_at: datetime
+    end_at: datetime
+    admin_password: str | None = Field(default=None, max_length=128)
+
+    @model_validator(mode="after")
+    def validate_range(self):
+        if self.start_at.tzinfo is None or self.end_at.tzinfo is None:
+            raise ValueError("예약 시간에는 시간대(UTC offset)가 포함되어야 합니다.")
+        if self.end_at <= self.start_at:
+            raise ValueError("종료 시간은 시작 시간보다 뒤여야 합니다.")
+        return self
+
+
 class AdminReservationUpdate(BaseModel):
     room_id: int | None = None
     start_at: datetime | None = None
