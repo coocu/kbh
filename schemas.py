@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
@@ -10,6 +11,7 @@ def validate_last4_value(value: str) -> str:
 
 
 class UserLoginRequest(BaseModel):
+    academy_id: int
     name: str = Field(min_length=1, max_length=40)
     phone_last4: str
 
@@ -20,7 +22,25 @@ class UserLoginRequest(BaseModel):
 
 
 class AdminLoginRequest(BaseModel):
+    academy_id: int
     password: str = Field(min_length=1, max_length=128)
+
+
+class AcademyRegistrationVerifyRequest(BaseModel):
+    license_key: str = Field(min_length=1, max_length=200)
+
+
+class AcademyCreateRequest(BaseModel):
+    registration_token: str = Field(min_length=1)
+    academy_name: str = Field(min_length=1, max_length=100)
+    recovery_name: str = Field(min_length=1, max_length=40)
+    recovery_phone_last4: str
+    admin_password: str = Field(min_length=4, max_length=128)
+
+    @field_validator("recovery_phone_last4")
+    @classmethod
+    def validate_recovery_last4(cls, value: str) -> str:
+        return validate_last4_value(value)
 
 
 class AuthorizedUserCreate(BaseModel):

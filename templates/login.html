@@ -3,38 +3,200 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{{ academy_name }} 관리자</title>
+  <title>녹음실 예약 시스템 관리자</title>
   <style>
     :root { color-scheme:light dark; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Apple SD Gothic Neo",sans-serif; }
+    * { box-sizing:border-box; }
     html,body { width:100%; min-height:100%; margin:0; }
-    body { min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; background:Canvas; color:CanvasText; }
-    .card { width:min(420px,calc(100vw - 40px)); border:1px solid color-mix(in srgb,CanvasText 20%,transparent); border-radius:24px; padding:28px; box-shadow:0 16px 50px rgba(0,0,0,.12); }
+    body { min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; background:Canvas; color:CanvasText; padding:20px; }
+    .card { width:min(430px,100%); border:1px solid color-mix(in srgb,CanvasText 20%,transparent); border-radius:24px; padding:28px; box-shadow:0 16px 50px rgba(0,0,0,.12); }
     h1 { margin:0 0 6px; font-size:28px; }
     p { margin:0 0 24px; opacity:.7; }
-    input,button { width:100%; box-sizing:border-box; border-radius:14px; font-size:17px; padding:14px 16px; }
-    input { border:1px solid color-mix(in srgb,CanvasText 25%,transparent); background:Canvas; color:CanvasText; margin-bottom:12px; }
-    button { border:0; background:#0a84ff; color:#fff; font-weight:700; cursor:pointer; }
+    input,select,button { width:100%; border-radius:14px; font-size:17px; padding:14px 16px; border:1px solid color-mix(in srgb,CanvasText 25%,transparent); background:Canvas; color:CanvasText; }
+    input,select { margin-bottom:12px; }
+    button { cursor:pointer; }
+    button.primary { border-color:#0a84ff; background:#0a84ff; color:#fff; font-weight:700; }
+    button.secondary { margin-top:10px; background:transparent; color:#0a84ff; border-color:color-mix(in srgb,#0a84ff 55%,transparent); font-weight:700; }
     .forgot { display:block; text-align:center; margin-top:16px; color:#0a84ff; text-decoration:none; font-size:14px; }
     .notice { border-radius:12px; padding:10px 12px; margin-bottom:12px; font-size:13px; }
     .error { background:color-mix(in srgb,#ff453a 15%,transparent); color:#ff6961; }
     .success { background:color-mix(in srgb,#30d158 15%,transparent); color:#30d158; }
+    .modal { position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center; padding:20px; background:rgba(0,0,0,.48); }
+    .modal.open { display:flex; }
+    .modal-card { width:min(460px,100%); max-height:90dvh; overflow:auto; border-radius:24px; padding:24px; background:Canvas; color:CanvasText; border:1px solid color-mix(in srgb,CanvasText 22%,transparent); box-shadow:0 24px 80px rgba(0,0,0,.35); }
+    .modal-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; }
+    .modal-head h2 { margin:0; font-size:23px; }
+    .close { width:auto; padding:8px 11px; background:transparent; }
+    .step-title { font-weight:700; margin-bottom:8px; }
+    .muted { opacity:.65; font-size:13px; margin:0 0 14px; }
+    .hidden { display:none; }
+    .modal-actions { display:flex; gap:8px; }
+    .modal-actions button { flex:1; }
   </style>
 </head>
 <body>
   <form class="card" method="post" action="/admin/login">
-    <h1>{{ academy_name }}</h1>
-    <p>예약 서버 관리자</p>
+    <h1>녹음실 예약 시스템</h1>
+    <p>학원을 선택한 후 관리자 로그인해 주세요.</p>
 
     {% if password_reset %}
       <div class="notice success">비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.</div>
     {% endif %}
     {% if login_error %}
-      <div class="notice error">관리자 비밀번호를 확인해 주세요.</div>
+      <div class="notice error">학원과 관리자 비밀번호를 확인해 주세요.</div>
+    {% endif %}
+    {% if reauth %}
+      <div class="notice error">관리자 로그인이 만료되었습니다. 다시 로그인해 주세요.</div>
     {% endif %}
 
-    <input name="password" type="password" autocomplete="current-password" placeholder="관리자 비밀번호" required autofocus>
-    <button type="submit">로그인</button>
-    <a class="forgot" href="/admin/forgot">비밀번호를 잊으셨나요?</a>
+    <select id="academySelect" name="academy_id" required>
+      <option value="">학원 선택</option>
+      {% for academy in academies %}
+        <option value="{{ academy.id }}" {% if selected_academy_id|string == academy.id|string %}selected{% endif %}>{{ academy.name }}</option>
+      {% endfor %}
+    </select>
+
+    <input name="password" type="password" autocomplete="current-password" placeholder="관리자 비밀번호" required>
+    <button class="primary" type="submit">로그인</button>
+    <button class="secondary" type="button" onclick="openRegister()">학원등록</button>
+    <a class="forgot" href="#" onclick="openForgot(event)">비밀번호를 잊으셨나요?</a>
   </form>
+
+  <div id="registerModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="registerTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2 id="registerTitle">학원등록</h2>
+        <button class="close" type="button" onclick="closeRegister()">닫기</button>
+      </div>
+
+      <div id="registerError" class="notice error hidden"></div>
+
+      <div id="verifyStep">
+        <div class="step-title">1. 인증키 확인</div>
+        <p class="muted">Pocket 인증키를 입력해 학원 등록 권한을 확인합니다.</p>
+        <input id="licenseKey" autocomplete="off" placeholder="인증키">
+        <button id="verifyButton" class="primary" type="button" onclick="verifyKey()">인증하기</button>
+      </div>
+
+      <div id="academyStep" class="hidden">
+        <div class="step-title">2. 학원 정보 등록</div>
+        <p class="muted">성함과 전화번호 끝 4자리는 비밀번호 찾기에 사용됩니다.</p>
+        <input id="newAcademyName" autocomplete="organization" placeholder="학원 이름">
+        <input id="recoveryName" autocomplete="name" placeholder="최초 관리자 성함">
+        <input id="recoveryPhone4" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="전화번호 끝 4자리">
+        <input id="initialPassword" type="password" autocomplete="new-password" placeholder="관리자 비밀번호">
+        <input id="initialPasswordConfirm" type="password" autocomplete="new-password" placeholder="관리자 비밀번호 확인">
+        <button id="registerButton" class="primary" type="button" onclick="registerAcademy()">학원 등록 완료</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+let registrationToken = null;
+
+function showRegisterError(message) {
+  const box = document.getElementById('registerError');
+  box.textContent = message || '';
+  box.classList.toggle('hidden', !message);
+}
+
+function openRegister() {
+  registrationToken = null;
+  showRegisterError('');
+  document.getElementById('licenseKey').value = '';
+  document.getElementById('verifyStep').classList.remove('hidden');
+  document.getElementById('academyStep').classList.add('hidden');
+  document.getElementById('registerModal').classList.add('open');
+  setTimeout(() => document.getElementById('licenseKey').focus(), 80);
+}
+
+function closeRegister() {
+  document.getElementById('registerModal').classList.remove('open');
+}
+
+function openForgot(event) {
+  event.preventDefault();
+  const id = document.getElementById('academySelect').value;
+  location.href = id ? `/admin/forgot?academy_id=${encodeURIComponent(id)}` : '/admin/forgot';
+}
+
+async function jsonPost(url, body) {
+  const response = await fetch(url, {
+    method:'POST',
+    headers:{'Content-Type':'application/json', 'Accept':'application/json'},
+    cache:'no-store',
+    body:JSON.stringify(body)
+  });
+  const data = await response.json().catch(()=>({}));
+  if (!response.ok) {
+    const detail = typeof data.detail === 'string' ? data.detail : '요청을 처리하지 못했습니다.';
+    throw new Error(detail);
+  }
+  return data;
+}
+
+async function verifyKey() {
+  const key = document.getElementById('licenseKey').value.trim();
+  if (!key) return showRegisterError('인증키를 입력해 주세요.');
+
+  const button = document.getElementById('verifyButton');
+  button.disabled = true;
+  button.textContent = '확인 중...';
+  showRegisterError('');
+
+  try {
+    const data = await jsonPost('/api/v1/academy-registration/verify', {license_key:key});
+    registrationToken = data.registration_token;
+    document.getElementById('verifyStep').classList.add('hidden');
+    document.getElementById('academyStep').classList.remove('hidden');
+    setTimeout(() => document.getElementById('newAcademyName').focus(), 80);
+  } catch (e) {
+    showRegisterError(e.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '인증하기';
+  }
+}
+
+async function registerAcademy() {
+  if (!registrationToken) return showRegisterError('인증키를 다시 확인해 주세요.');
+
+  const academyName = document.getElementById('newAcademyName').value.trim();
+  const recoveryName = document.getElementById('recoveryName').value.trim();
+  const recoveryPhone4 = document.getElementById('recoveryPhone4').value.trim();
+  const password = document.getElementById('initialPassword').value;
+  const confirm = document.getElementById('initialPasswordConfirm').value;
+
+  if (!academyName || !recoveryName) return showRegisterError('학원 이름과 성함을 입력해 주세요.');
+  if (!/^\d{4}$/.test(recoveryPhone4)) return showRegisterError('전화번호 끝 4자리는 숫자 4자리로 입력해 주세요.');
+  if (password.length < 4) return showRegisterError('관리자 비밀번호는 4자 이상 입력해 주세요.');
+  if (password !== confirm) return showRegisterError('관리자 비밀번호 확인이 일치하지 않습니다.');
+
+  const button = document.getElementById('registerButton');
+  button.disabled = true;
+  button.textContent = '등록 중...';
+  showRegisterError('');
+
+  try {
+    const academy = await jsonPost('/api/v1/academies', {
+      registration_token: registrationToken,
+      academy_name: academyName,
+      recovery_name: recoveryName,
+      recovery_phone_last4: recoveryPhone4,
+      admin_password: password
+    });
+    location.href = `/admin?academy_id=${encodeURIComponent(academy.id)}`;
+  } catch (e) {
+    showRegisterError(e.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = '학원 등록 완료';
+  }
+}
+
+document.getElementById('registerModal').addEventListener('click', (event) => {
+  if (event.target.id === 'registerModal') closeRegister();
+});
+</script>
 </body>
 </html>
