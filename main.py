@@ -120,6 +120,10 @@ LEGACY_RECOVERY_PHONE_LAST4 = os.getenv("ADMIN_RECOVERY_PHONE_LAST4", "0667").st
 BOOKING_TIMEZONE_NAME = os.getenv("BOOKING_TIMEZONE", "Asia/Seoul").strip() or "Asia/Seoul"
 BOOKING_TIMEZONE = ZoneInfo(BOOKING_TIMEZONE_NAME)
 
+# 이용 중 조기 종료는 기존 DB 스키마를 변경하지 않기 위해 cancel_reason에
+# 내부 마커를 붙여 저장한다. cancelled_at은 설정하지 않으므로 취소 예약과 구분된다.
+EARLY_END_REASON_PREFIX = "__EARLY_END__:"
+
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -147,12 +151,31 @@ def _legacy_datetime(value):
     return value
 
 
+def _is_early_ended(r: Reservation) -> bool:
+    return (
+        r.cancelled_at is None
+        and isinstance(r.cancel_reason, str)
+        and r.cancel_reason.startswith(EARLY_END_REASON_PREFIX)
+    )
+
+
+def _visible_reservation_reason(r: Reservation) -> str | None:
+    if not r.cancel_reason:
+        return None
+    if _is_early_ended(r):
+        value = r.cancel_reason[len(EARLY_END_REASON_PREFIX):].strip()
+        return value or None
+    return r.cancel_reason
+
+
 def reservation_status(r: Reservation, now: datetime | None = None) -> str:
     now = _aware_utc(now or now_utc())
     start_at = _aware_utc(r.start_at)
     end_at = _aware_utc(r.end_at)
     if r.cancelled_at is not None:
         return "취소됨"
+    if _is_early_ended(r):
+        return "이용중 종료"
     if now < start_at:
         return "예약중"
     if start_at <= now < end_at:
@@ -176,7 +199,7 @@ def admin_reservation(r: Reservation) -> dict:
         "nickname": r.nickname,
         "phone_last4": r.phone_last4,
         "cancelled_at": r.cancelled_at,
-        "cancel_reason": r.cancel_reason,
+        "cancel_reason": _visible_reservation_reason(r),
         "created_at": r.created_at,
     }
 
@@ -1324,6 +1347,68 @@ def cancel_my_reservation(
     return admin_reservation(row)
 
 
+@app.post("/api/v1/reservations/{reservation_id}/end")
+def end_my_reservation(
+    reservation_id: str,
+    payload: CancelRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    auth = require_app_token(request)
+    academy_id = auth["academy_id"]
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=422, detail="이용종료 사유를 입력해 주세요.")
+
+    try:
+        row = db.scalar(
+            select(Reservation)
+            .where(
+                Reservation.id == reservation_id,
+                Reservation.academy_id == academy_id,
+                Reservation.nickname == auth.get("name"),
+                Reservation.phone_last4 == auth.get("phone_last4"),
+            )
+            .with_for_update()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="본인 예약을 찾을 수 없습니다.")
+        if row.cancelled_at is not None:
+            raise HTTPException(status_code=409, detail="취소된 예약은 이용종료할 수 없습니다.")
+        if _is_early_ended(row):
+            raise HTTPException(status_code=409, detail="이미 이용종료 처리된 예약입니다.")
+
+        current = now_utc()
+        start_at = _aware_utc(row.start_at)
+        end_at = _aware_utc(row.end_at)
+
+        if current < start_at:
+            raise HTTPException(status_code=409, detail="예약 시작 전에는 이용종료할 수 없습니다. 예약 취소를 이용해 주세요.")
+        if current >= end_at:
+            raise HTTPException(status_code=409, detail="이미 이용시간이 종료된 예약입니다.")
+
+        # 실제 종료 시각까지만 이용한 것으로 반영한다.
+        # 남은 예약시간은 즉시 비워져 다른 회원이 다시 예약할 수 있고,
+        # 이용현황/연습일지도 실제 시작~종료 시간으로 계산된다.
+        row.end_at = current
+        row.cancel_reason = EARLY_END_REASON_PREFIX + reason
+        db.commit()
+        db.refresh(row)
+
+        result = admin_reservation(row)
+        result["room_name"] = db.scalar(
+            select(Room.name).where(
+                Room.id == row.room_id,
+                Room.academy_id == academy_id,
+            )
+        )
+        result["can_move"] = False
+        return result
+    except HTTPException:
+        db.rollback()
+        raise
+
+
 @app.get("/api/v1/practice-journals")
 def list_my_practice_journals(request: Request, db: Session = Depends(get_db)):
     auth = require_app_token(request)
@@ -2410,6 +2495,8 @@ def admin_cancel_reservation(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다.")
+    if _is_early_ended(row):
+        raise HTTPException(status_code=409, detail="이용중 종료 기록은 취소 예약으로 변경할 수 없습니다.")
     if row.cancelled_at is None:
         row.cancelled_at = now_utc()
         row.cancel_reason = payload.reason

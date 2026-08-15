@@ -1389,10 +1389,12 @@ function renderReservations() {
       <td data-label="전화 끝 4자리">${escapeHtml(r.phone_last4)}</td>
       <td data-label="사유">${r.cancel_reason ? escapeHtml(r.cancel_reason) : '<span class="muted">-</span>'}</td>
       <td data-label="관리" class="actions"><div class="mobile-actions">
-        ${r.status !== '취소됨'
-          ? `${r.status !== '사용종료' ? `<button onclick='openReservationEditor(${JSON.stringify(r.id)})'>수정</button>` : ''}
-             <button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>`
-          : `<button class="danger" onclick='deleteCancelledReservation(${JSON.stringify(r.id)})'>삭제</button>`}
+        ${r.status === '취소됨'
+          ? `<button class="danger" onclick='deleteCancelledReservation(${JSON.stringify(r.id)})'>삭제</button>`
+          : r.status === '이용중 종료'
+            ? `<span class="muted">종료 기록</span>`
+            : `${r.status !== '사용종료' ? `<button onclick='openReservationEditor(${JSON.stringify(r.id)})'>수정</button>` : ''}
+               <button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>`}
       </div></td>
     </tr>`).join('') || '<tr><td colspan="7" class="muted empty-row">해당 조건의 예약이 없습니다.</td></tr>';
 }
