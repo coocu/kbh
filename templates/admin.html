@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>{{ academy_name }} 관리자</title>
   <style>
     :root { color-scheme: light dark; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Apple SD Gothic Neo",sans-serif; }
@@ -131,6 +131,136 @@
     .member-table .actions button { padding:7px 10px; }
     .member-limit-free { opacity:.65; }
     .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+
+
+    /* iPhone / 앱 WebView에서 데스크톱 페이지처럼 보이지 않도록 터치 중심 UI */
+    input, select, button { min-height:44px; }
+    .room-main { min-width:0; flex:1; }
+    .room-actions { margin:0; }
+    .room-actions button { white-space:nowrap; }
+    .reservation-table { min-width:850px; }
+
+    @media (max-width:760px) {
+      body { background:color-mix(in srgb, CanvasText 3%, Canvas); }
+      header {
+        padding:12px 14px;
+        padding-top:max(12px, env(safe-area-inset-top));
+      }
+      header h1 { font-size:17px; line-height:1.25; }
+      header button { min-height:38px; padding:8px 11px; font-size:13px; }
+
+      .admin-tabs { top:62px; padding:8px 8px; }
+      .admin-tabs-inner { gap:5px; }
+      .tab-button { min-height:42px; padding:8px 2px; font-size:11.5px; border-radius:11px; }
+
+      .wrap { padding:10px; gap:12px; }
+      .grid { grid-template-columns:minmax(0,1fr); gap:12px; }
+      .card {
+        border-radius:18px;
+        padding:14px;
+        background:Canvas;
+        box-shadow:0 1px 0 color-mix(in srgb, CanvasText 5%, transparent);
+      }
+      h2 { font-size:18px; margin-bottom:12px; }
+      input, select, button { min-height:46px; border-radius:12px; }
+      input, select { font-size:16px; } /* iOS 입력 시 자동 확대 방지 */
+      button { touch-action:manipulation; }
+
+      .member-card-head { align-items:center; }
+      .member-card-head button { min-height:40px; padding:8px 10px; font-size:13px; }
+      .policy-grid { grid-template-columns:1fr 1fr; gap:10px 8px; }
+      .inline-check { min-height:46px; }
+      .hour-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+      .hour-button { min-height:44px; font-size:13px; padding:8px 2px; }
+
+      /* 녹음실 한 줄을 모바일 카드처럼 정리 */
+      #rooms .room { padding:14px 0; }
+      #rooms .room > .row { display:block; margin:0; }
+      .room-main strong { font-size:16px; }
+      .room-main .muted { margin-top:5px; line-height:1.45; }
+      .room-actions {
+        display:grid !important;
+        grid-template-columns:repeat(3,minmax(0,1fr));
+        gap:7px;
+        margin-top:11px !important;
+      }
+      .room-actions button { width:100%; padding:8px 4px; font-size:13px; }
+
+      /* 회원/예약 표는 가로 스크롤 대신 카드형 */
+      .scroll { overflow:visible; }
+      .member-table, .reservation-table { min-width:0; display:block; }
+      .member-table thead, .reservation-table thead { display:none; }
+      .member-table tbody, .reservation-table tbody { display:block; }
+      .member-table tr, .reservation-table tr {
+        display:block;
+        border:1px solid color-mix(in srgb, CanvasText 13%, transparent);
+        border-radius:15px;
+        padding:8px 11px;
+        margin:9px 0;
+        background:Canvas;
+      }
+      .member-table td, .reservation-table td {
+        display:grid;
+        grid-template-columns:105px minmax(0,1fr);
+        gap:8px;
+        align-items:center;
+        border:0;
+        padding:6px 0;
+        font-size:14px;
+      }
+      .member-table td::before, .reservation-table td::before {
+        content:attr(data-label);
+        opacity:.58;
+        font-size:12px;
+        font-weight:700;
+      }
+      .member-table td.actions, .reservation-table td.actions {
+        grid-template-columns:105px minmax(0,1fr);
+      }
+      .member-table td.actions > .mobile-actions,
+      .reservation-table td.actions > .mobile-actions {
+        display:flex; flex-wrap:wrap; gap:6px;
+      }
+      .member-table .actions button, .reservation-table .actions button {
+        min-height:38px; padding:7px 10px; font-size:13px;
+      }
+      td.empty-row { display:block !important; padding:12px 2px !important; }
+      td.empty-row::before { content:none !important; }
+
+      /* 팝업은 iOS 시트처럼 하단에서 표시 */
+      .modal-backdrop {
+        align-items:flex-end;
+        justify-content:center;
+        padding:0;
+        background:rgba(0,0,0,.46);
+      }
+      .modal-card {
+        width:100%;
+        max-height:88dvh;
+        border-radius:24px 24px 0 0;
+        border-left:0;
+        border-right:0;
+        border-bottom:0;
+        padding:18px 16px calc(18px + env(safe-area-inset-bottom));
+        box-shadow:0 -12px 40px rgba(0,0,0,.22);
+      }
+      .modal-card::before {
+        content:"";
+        display:block;
+        width:38px;
+        height:5px;
+        border-radius:999px;
+        margin:-7px auto 15px;
+        background:color-mix(in srgb, CanvasText 22%, transparent);
+      }
+      .modal-card h2 { font-size:19px; }
+      .modal-actions, .modal-card > .row[style*="justify-content:flex-end"] {
+        display:grid !important;
+        grid-template-columns:1fr 1fr;
+        gap:8px;
+      }
+      .modal-actions button, .modal-card > .row[style*="justify-content:flex-end"] button { width:100%; }
+    }
 
     @media (max-width:600px) {
       header { padding:14px 16px; }
@@ -269,6 +399,33 @@
     </section>
   </section>
 
+
+  <div id="roomEditModal" class="modal-backdrop" onclick="if(event.target===this) closeRoomEditor()">
+    <div class="modal-card">
+      <h2>녹음실 수정</h2>
+      <input id="editRoomId" type="hidden">
+      <div class="field">
+        <label class="muted">녹음실 이름</label>
+        <input id="editRoomName" placeholder="녹음실 이름">
+      </div>
+      <div class="policy-grid" style="margin-top:10px">
+        <div class="field">
+          <label class="muted">오픈시간</label>
+          <select id="editRoomOpenHour"></select>
+        </div>
+        <div class="field">
+          <label class="muted">마감(오프)시간</label>
+          <select id="editRoomCloseHour"></select>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:8px">운영시간은 1시간 단위이며, 24:00은 다음 날 00:00을 의미합니다.</div>
+      <div class="modal-actions">
+        <button type="button" onclick="closeRoomEditor()">취소</button>
+        <button type="button" class="primary" onclick="saveRoomEdit()">수정 저장</button>
+      </div>
+    </div>
+  </div>
+
   <div id="categoryManagerModal" class="modal-backdrop" onclick="if(event.target===this) closeCategoryManager()">
     <div class="modal-card">
       <div class="member-card-head">
@@ -338,7 +495,7 @@
       </div>
 
       <div class="scroll">
-        <table>
+        <table class="reservation-table">
           <thead><tr><th>상태</th><th>녹음실</th><th>예약시간</th><th>닉네임</th><th>전화 끝4자리</th><th>관리</th></tr></thead>
           <tbody id="reservations"></tbody>
         </table>
@@ -582,18 +739,18 @@ function renderReservations() {
 
   document.getElementById('reservations').innerHTML = rows.map(r=>`
     <tr>
-      <td><span class="badge">${escapeHtml(r.status)}</span></td>
-      <td>${escapeHtml(reservationRoomMap[r.room_id]||('녹음실 #'+r.room_id))}</td>
-      <td>${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
-      <td>${escapeHtml(r.nickname)}</td>
-      <td>${escapeHtml(r.phone_last4)}</td>
-      <td>
+      <td data-label="상태"><span class="badge">${escapeHtml(r.status)}</span></td>
+      <td data-label="녹음실">${escapeHtml(reservationRoomMap[r.room_id]||('녹음실 #'+r.room_id))}</td>
+      <td data-label="예약시간">${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
+      <td data-label="예약자">${escapeHtml(r.nickname)}</td>
+      <td data-label="전화 끝 4자리">${escapeHtml(r.phone_last4)}</td>
+      <td data-label="관리" class="actions"><div class="mobile-actions">
         ${r.status !== '취소됨'
           ? `${r.status !== '사용종료' ? `<button onclick='openReservationEditor(${JSON.stringify(r.id)})'>수정</button>` : ''}
              <button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>`
           : `<button class="danger" onclick='deleteCancelledReservation(${JSON.stringify(r.id)})'>삭제</button>`}
-      </td>
-    </tr>`).join('') || '<tr><td colspan="6" class="muted">해당 조건의 예약이 없습니다.</td></tr>';
+      </div></td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted empty-row">해당 조건의 예약이 없습니다.</td></tr>';
 }
 
 function localDateParts(iso) {
@@ -685,26 +842,49 @@ async function createRoom() {
   } catch(e) { alert(e.message); }
 }
 
-async function saveRoomHours(id) {
-  const open_hour = Number(document.getElementById('roomOpen-'+id).value);
-  const close_hour = Number(document.getElementById('roomClose-'+id).value);
-  if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간은 0~23 사이로 입력해 주세요.');
-  if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간은 1~24 사이로 입력해 주세요.');
-  if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
-  try {
-    await api('/api/admin/rooms/'+id, {
-      method:'PATCH',
-      body:JSON.stringify({open_hour, close_hour})
-    });
-    await loadAll();
-  } catch(e) { alert(e.message); }
+function hourSelectOptions(start, end, selected) {
+  const options = [];
+  for (let hour = start; hour <= end; hour++) {
+    options.push(`<option value="${hour}" ${hour === selected ? 'selected' : ''}>${String(hour).padStart(2,'0')}:00</option>`);
+  }
+  return options.join('');
 }
 
-async function renameRoom(id, current) {
-  const name = prompt('새 녹음실 이름', current);
-  if (!name || name === current) return;
+function openRoomEditor(id) {
+  const room = rooms.find(r => r.id === id);
+  if (!room) return alert('녹음실 정보를 찾을 수 없습니다.');
+
+  const openHour = room.open_hour ?? 0;
+  const closeHour = room.close_hour ?? 24;
+  document.getElementById('editRoomId').value = room.id;
+  document.getElementById('editRoomName').value = room.name || '';
+  document.getElementById('editRoomOpenHour').innerHTML = hourSelectOptions(0, 23, openHour);
+  document.getElementById('editRoomCloseHour').innerHTML = hourSelectOptions(1, 24, closeHour);
+  document.getElementById('roomEditModal').classList.add('active');
+}
+
+function closeRoomEditor() {
+  document.getElementById('roomEditModal').classList.remove('active');
+}
+
+async function saveRoomEdit() {
+  const id = Number(document.getElementById('editRoomId').value);
+  const name = document.getElementById('editRoomName').value.trim();
+  const open_hour = Number(document.getElementById('editRoomOpenHour').value);
+  const close_hour = Number(document.getElementById('editRoomCloseHour').value);
+
+  if (!id) return alert('녹음실 정보를 찾을 수 없습니다.');
+  if (!name) return alert('녹음실 이름을 입력해 주세요.');
+  if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간을 확인해 주세요.');
+  if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간을 확인해 주세요.');
+  if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
+
   try {
-    await api('/api/admin/rooms/'+id, {method:'PATCH', body:JSON.stringify({name})});
+    await api('/api/admin/rooms/' + id, {
+      method:'PATCH',
+      body:JSON.stringify({name, open_hour, close_hour})
+    });
+    closeRoomEditor();
     await loadAll();
   } catch(e) { alert(e.message); }
 }
@@ -1010,15 +1190,15 @@ function renderAuthorizedUsers() {
 
   document.getElementById('authorizedUsers').innerHTML = users.map(u=>`
     <tr>
-      <td><strong>${escapeHtml(u.name)}</strong></td>
-      <td>${escapeHtml(u.phone_last4)}</td>
-      <td>${u.category_name ? `<span class="category-pill">${escapeHtml(u.category_name)}</span>` : '<span class="muted">미지정</span>'}</td>
-      <td>${u.booking_limit_hours ? `${u.booking_limit_hours}시간` : '<span class="member-limit-free">자유</span>'}</td>
-      <td class="actions">
+      <td data-label="이름"><strong>${escapeHtml(u.name)}</strong></td>
+      <td data-label="전화 끝 4자리">${escapeHtml(u.phone_last4)}</td>
+      <td data-label="카테고리">${u.category_name ? `<span class="category-pill">${escapeHtml(u.category_name)}</span>` : '<span class="muted">미지정</span>'}</td>
+      <td data-label="예약시간 제한">${u.booking_limit_hours ? `${u.booking_limit_hours}시간` : '<span class="member-limit-free">자유</span>'}</td>
+      <td data-label="관리" class="actions"><div class="mobile-actions">
         <button onclick="openMemberEditor(${u.id})">수정</button>
         <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
-      </td>
-    </tr>`).join('') || `<tr><td colspan="5" class="muted">${emptyMessage}</td></tr>`;
+      </div></td>
+    </tr>`).join('') || `<tr><td colspan="5" class="muted empty-row">${emptyMessage}</td></tr>`;
 }
 
 async function loadAuthorizedUsers() {
@@ -1060,28 +1240,17 @@ async function loadAll() {
     document.getElementById('rooms').innerHTML = rooms.map(r=>`
       <div class="room">
         <div class="row" style="justify-content:space-between">
-          <div>
+          <div class="room-main">
             <strong>${escapeHtml(r.name)}</strong>
             <div class="muted">
               ${r.is_paused ? '일시 사용중지 · '+escapeHtml(r.pause_reason||'사유 없음') : '예약 가능'}
               · 운영 ${String(r.open_hour ?? 0).padStart(2,'0')}:00 ~ ${String(r.close_hour ?? 24).padStart(2,'0')}:00
             </div>
           </div>
-          <div class="row">
-            <button onclick='renameRoom(${r.id}, ${JSON.stringify(r.name)})'>이름수정</button>
+          <div class="row room-actions">
+            <button onclick="openRoomEditor(${r.id})">수정</button>
             <button onclick='togglePause(${JSON.stringify(r)})'>${r.is_paused?'사용재개':'일시중지'}</button>
             <button class="danger" onclick='deleteRoom(${r.id}, ${JSON.stringify(r.name)})'>삭제</button>
-          </div>
-        </div>
-        <div class="policy-box">
-          <div class="row">
-            <label class="muted">오픈
-              <input id="roomOpen-${r.id}" type="number" min="0" max="23" value="${r.open_hour ?? 0}" style="width:82px">
-            </label>
-            <label class="muted">마감(오프)
-              <input id="roomClose-${r.id}" type="number" min="1" max="24" value="${r.close_hour ?? 24}" style="width:82px">
-            </label>
-            <button class="primary" onclick="saveRoomHours(${r.id})">운영시간 저장</button>
           </div>
         </div>
       </div>`).join('') || '<div class="muted">등록된 녹음실이 없습니다.</div>';
