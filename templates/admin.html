@@ -42,7 +42,7 @@
       max-width:1100px;
       margin:0 auto;
       display:grid;
-      grid-template-columns:repeat(4,minmax(0,1fr));
+      grid-template-columns:repeat(7,minmax(0,1fr));
       gap:8px;
     }
     .tab-button {
@@ -131,6 +131,25 @@
     .member-table .actions button { padding:7px 10px; }
     .member-limit-free { opacity:.65; }
     .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+    .member-booking-summary {
+      display:grid; gap:7px; padding:12px; margin:10px 0;
+      border-radius:14px; background:color-mix(in srgb, #0a84ff 7%, transparent);
+      border:1px solid color-mix(in srgb, #0a84ff 20%, transparent);
+    }
+    .member-booking-summary strong { font-size:15px; }
+    .member-booking-policy { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .member-booking-policy .badge { font-size:12px; }
+    .member-booking-warning {
+      display:none; padding:10px 12px; margin-top:10px; border-radius:12px;
+      color:#ff9f0a; background:color-mix(in srgb, #ff9f0a 10%, transparent);
+      border:1px solid color-mix(in srgb, #ff9f0a 32%, transparent);
+      font-size:13px; font-weight:700;
+    }
+    .member-booking-warning.active { display:block; }
+    .member-booking-password { display:none; margin-top:10px; }
+    .member-booking-password.active { display:block; }
+    .member-booking-hour.disabled { opacity:.35; cursor:not-allowed; }
+    .member-booking-hour.reserved { opacity:.42; text-decoration:line-through; }
 
 
     /* iPhone / 앱 WebView에서 데스크톱 페이지처럼 보이지 않도록 터치 중심 UI */
@@ -139,6 +158,195 @@
     .room-actions { margin:0; }
     .room-actions button { white-space:nowrap; }
     .reservation-table { min-width:850px; }
+
+    .status-toolbar {
+      display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      margin-bottom:14px;
+    }
+    .status-date-card {
+      display:flex; align-items:center; gap:12px; padding:14px 16px;
+      border:1px solid color-mix(in srgb, CanvasText 13%, transparent);
+      border-radius:18px; background:Canvas;
+    }
+    .status-date-icon {
+      width:42px; height:42px; border-radius:13px;
+      display:grid; place-items:center; font-size:24px;
+      color:#0a84ff; background:color-mix(in srgb, #0a84ff 11%, transparent);
+      flex:0 0 auto;
+    }
+    .status-date-card > .grow { min-width:0; width:100%; }
+    .status-date-card input[type="date"],
+    .status-date-card input[type="month"] {
+      display:block;
+      width:100%;
+      max-width:100%;
+      min-width:0 !important;
+    }
+    .status-picker-shell {
+      position:relative;
+      width:100%;
+      min-width:0;
+      min-height:54px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:10px;
+      padding:10px 42px 10px 14px;
+      border:1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      border-radius:14px;
+      background:Canvas;
+      overflow:hidden;
+    }
+    .status-picker-value {
+      width:100%;
+      min-width:0;
+      text-align:center;
+      font-size:18px;
+      font-weight:800;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .status-picker-arrow {
+      position:absolute;
+      right:14px;
+      top:50%;
+      transform:translateY(-50%);
+      opacity:.6;
+      pointer-events:none;
+    }
+    .status-picker-shell > input[type="date"],
+    .status-picker-shell > input[type="month"] {
+      position:absolute !important;
+      inset:0 !important;
+      display:block !important;
+      width:100% !important;
+      height:100% !important;
+      min-width:0 !important;
+      max-width:none !important;
+      margin:0 !important;
+      padding:0 !important;
+      border:0 !important;
+      border-radius:0 !important;
+      opacity:0 !important;
+      background:transparent !important;
+      color:transparent !important;
+      -webkit-appearance:none !important;
+      appearance:none !important;
+      cursor:pointer;
+    }
+    .status-legend {
+      display:flex; gap:16px; flex-wrap:wrap; padding:12px 14px;
+      border:1px solid color-mix(in srgb, CanvasText 10%, transparent);
+      border-radius:16px;
+    }
+    .legend-item { display:flex; align-items:center; gap:7px; font-size:13px; }
+    .legend-dot { width:18px; height:18px; border-radius:6px; border:1px solid; }
+    .legend-available { background:color-mix(in srgb, #34c759 24%, transparent); border-color:#34c759; }
+    .legend-reserved { background:color-mix(in srgb, #ff453a 22%, transparent); border-color:#ff453a; }
+    .legend-blocked { background:color-mix(in srgb, CanvasText 10%, transparent); border-color:color-mix(in srgb, CanvasText 25%, transparent); }
+
+    .room-status-card {
+      border:1px solid color-mix(in srgb, CanvasText 13%, transparent);
+      border-radius:18px; margin:10px 0; overflow:hidden; background:Canvas;
+    }
+    .room-status-head {
+      width:100%; display:flex; align-items:center; justify-content:space-between;
+      gap:12px; padding:14px; border:0; border-radius:0; background:transparent; text-align:left;
+    }
+    .room-status-head:hover { background:color-mix(in srgb, CanvasText 3%, transparent); }
+    .room-status-left { display:flex; align-items:center; gap:11px; min-width:0; }
+    .room-status-icon {
+      width:42px; height:42px; border-radius:50%; display:grid; place-items:center;
+      color:#0a84ff; background:color-mix(in srgb, #0a84ff 13%, transparent); font-size:20px; flex:0 0 auto;
+    }
+    .room-status-name { font-weight:800; font-size:16px; }
+    .room-status-summary { margin-top:3px; font-size:13px; opacity:.65; }
+    .room-status-chevron { color:#0a84ff; font-size:20px; font-weight:900; }
+    .room-status-body { padding:0 14px 15px; display:none; }
+    .room-status-card.expanded .room-status-body { display:block; }
+    .room-status-hours {
+      display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:7px; margin-top:10px;
+    }
+    .room-hour {
+      min-height:48px; border-radius:12px; display:grid; place-items:center;
+      border:1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      font-weight:800; font-size:14px; user-select:none;
+    }
+    .room-hour.available {
+      color:#248a3d; border-color:#34c759;
+      background:color-mix(in srgb, #34c759 19%, transparent);
+    }
+    .room-hour.reserved {
+      color:#ff453a; border-color:#ff453a;
+      background:color-mix(in srgb, #ff453a 18%, transparent);
+    }
+    .room-hour.blocked {
+      opacity:.55; background:color-mix(in srgb, CanvasText 8%, transparent);
+    }
+
+    .usage-hero { text-align:center; padding:10px 0 18px; }
+    .usage-trophy { font-size:46px; line-height:1; margin-bottom:8px; }
+    .usage-title { font-size:22px; font-weight:900; }
+    .usage-subtitle { margin-top:5px; font-size:13px; opacity:.55; }
+    .usage-list { display:grid; gap:10px; }
+    .usage-card {
+      display:grid; grid-template-columns:56px minmax(0,1fr) auto;
+      gap:12px; align-items:center; padding:14px;
+      border:1px solid color-mix(in srgb, CanvasText 12%, transparent);
+      border-radius:18px; background:Canvas;
+    }
+    .usage-rank {
+      width:48px; height:48px; border-radius:50%; display:grid; place-items:center;
+      font-weight:900; font-size:19px;
+      background:color-mix(in srgb, #0a84ff 13%, transparent); color:#0a84ff;
+    }
+    .usage-card.rank-1 { border:2px solid #ffd60a; }
+    .usage-card.rank-1 .usage-rank { background:color-mix(in srgb, #ffd60a 22%, transparent); color:#9a7100; }
+    .usage-card.rank-2 .usage-rank { background:color-mix(in srgb, #8e8e93 16%, transparent); color:#636366; }
+    .usage-card.rank-3 { border-color:#c87522; }
+    .usage-card.rank-3 .usage-rank { background:color-mix(in srgb, #c87522 18%, transparent); color:#9b5617; }
+    .usage-name { font-size:17px; font-weight:900; }
+    .usage-meta { margin-top:5px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .usage-hours {
+      min-width:78px; text-align:center; padding:9px 12px; border-radius:999px;
+      background:#0a84ff; color:white; font-weight:900;
+    }
+    .usage-empty { text-align:center; padding:28px 10px; opacity:.55; }
+
+
+    textarea {
+      width:100%; min-height:140px; resize:vertical;
+      font:inherit; border-radius:12px; padding:11px 12px;
+      border:1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      background:Canvas; color:CanvasText;
+    }
+    .practice-member-list {
+      display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+      gap:8px; margin:12px 0 18px;
+    }
+    .practice-member-button {
+      width:100%; text-align:left; padding:12px 13px; border-radius:14px;
+      display:flex; align-items:center; justify-content:space-between; gap:10px;
+    }
+    .practice-member-button.active {
+      border-color:#0a84ff;
+      background:color-mix(in srgb, #0a84ff 10%, Canvas);
+    }
+    .practice-summary { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0 14px; }
+    .practice-log-card {
+      border:1px solid color-mix(in srgb, CanvasText 12%, transparent);
+      border-radius:17px; padding:14px; margin:9px 0; background:Canvas;
+    }
+    .practice-log-head { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+    .practice-log-date { font-weight:900; font-size:16px; }
+    .practice-log-time { margin-top:4px; font-size:13px; opacity:.65; }
+    .practice-log-content {
+      white-space:pre-wrap; line-height:1.55; margin-top:11px; padding-top:11px;
+      border-top:1px solid color-mix(in srgb, CanvasText 9%, transparent);
+    }
+    .practice-empty { text-align:center; padding:28px 10px; opacity:.55; }
+
 
     @media (max-width:760px) {
       body { background:color-mix(in srgb, CanvasText 3%, Canvas); }
@@ -149,9 +357,15 @@
       header h1 { font-size:17px; line-height:1.25; }
       header button { min-height:38px; padding:8px 11px; font-size:13px; }
 
-      .admin-tabs { top:62px; padding:8px 8px; }
-      .admin-tabs-inner { gap:5px; }
-      .tab-button { min-height:42px; padding:8px 2px; font-size:11.5px; border-radius:11px; }
+      .admin-tabs { top:62px; padding:8px 8px; overflow-x:auto; scrollbar-width:none; }
+      .admin-tabs::-webkit-scrollbar { display:none; }
+      .admin-tabs-inner {
+        display:flex; gap:6px; width:max-content; max-width:none; margin:0;
+      }
+      .tab-button {
+        width:auto; min-width:88px; min-height:42px; padding:8px 10px;
+        font-size:12px; border-radius:11px; flex:0 0 auto;
+      }
 
       .wrap { padding:10px; gap:12px; }
       .grid { grid-template-columns:minmax(0,1fr); gap:12px; }
@@ -172,6 +386,40 @@
       .inline-check { min-height:46px; }
       .hour-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
       .hour-button { min-height:44px; font-size:13px; padding:8px 2px; }
+
+      .status-toolbar { display:grid; grid-template-columns:1fr; }
+      .status-date-card {
+        display:grid;
+        grid-template-columns:42px minmax(0,1fr);
+        align-items:center;
+        gap:12px;
+        padding:12px;
+      }
+      .status-date-card > .grow { min-width:0; width:100%; }
+      .status-date-card input[type="date"],
+      .status-date-card input[type="month"] {
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+        box-sizing:border-box;
+        font-size:16px;
+      }
+      .status-picker-shell {
+        width:100%;
+        max-width:100%;
+        min-width:0;
+        min-height:54px;
+        padding-left:12px;
+        padding-right:38px;
+        overflow:hidden;
+      }
+      .status-picker-value { font-size:17px; }
+      .status-legend { justify-content:space-between; gap:8px; }
+      .room-status-hours { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+      .room-hour { min-height:46px; }
+      .usage-card { grid-template-columns:50px minmax(0,1fr) auto; gap:9px; padding:12px; }
+      .usage-rank { width:44px; height:44px; }
+      .usage-hours { min-width:70px; padding:8px 10px; }
 
       /* 녹음실 한 줄을 모바일 카드처럼 정리 */
       #rooms .room { padding:14px 0; }
@@ -285,6 +533,9 @@
     <button type="button" class="tab-button active" data-tab="rooms" onclick="switchAdminTab('rooms')">녹음실 관리</button>
     <button type="button" class="tab-button" data-tab="members" onclick="switchAdminTab('members')">회원관리</button>
     <button type="button" class="tab-button" data-tab="reservations" onclick="switchAdminTab('reservations')">예약현황</button>
+    <button type="button" class="tab-button" data-tab="room-status" onclick="switchAdminTab('room-status')">녹음실 현황</button>
+    <button type="button" class="tab-button" data-tab="usage" onclick="switchAdminTab('usage')">이용현황</button>
+    <button type="button" class="tab-button" data-tab="practice" onclick="switchAdminTab('practice')">연습일지체크</button>
     <button type="button" class="tab-button" data-tab="password" onclick="switchAdminTab('password')">비밀번호 변경</button>
   </div>
 </nav>
@@ -471,6 +722,46 @@
     </div>
   </div>
 
+  <div id="memberReservationModal" class="modal-backdrop" onclick="if(event.target===this) closeMemberReservation()">
+    <div class="modal-card">
+      <div class="member-card-head">
+        <h2>회원 예약</h2>
+        <button type="button" onclick="closeMemberReservation()">닫기</button>
+      </div>
+      <input id="memberReservationUserId" type="hidden">
+
+      <div class="member-booking-summary">
+        <strong id="memberReservationMemberName">회원</strong>
+        <div id="memberReservationPolicyText" class="member-booking-policy"></div>
+      </div>
+
+      <div class="field">
+        <label class="muted">예약 날짜</label>
+        <input id="memberReservationDate" type="date" onchange="clearMemberReservationHours(); renderMemberReservationHours()">
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label class="muted">녹음실</label>
+        <select id="memberReservationRoom" onchange="clearMemberReservationHours(); renderMemberReservationHours()"></select>
+      </div>
+
+      <div class="muted" style="margin-top:10px">예약할 시간을 연속으로 선택해 주세요. 회원 제한보다 적은 시간은 그대로 예약할 수 있습니다.</div>
+      <div id="memberReservationHours" class="hour-grid"></div>
+      <div id="memberReservationSelectedText" class="muted">선택된 시간이 없습니다.</div>
+
+      <div id="memberReservationWarning" class="member-booking-warning"></div>
+      <div id="memberReservationPasswordWrap" class="field member-booking-password">
+        <label class="muted">관리자 비밀번호 · 제한 초과 추가시간 승인</label>
+        <input id="memberReservationAdminPassword" type="password" autocomplete="current-password" placeholder="관리자 비밀번호">
+        <div class="muted" style="margin-top:5px">비밀번호 승인은 이번 예약에만 적용되며 회원의 기본 시간제한은 변경하지 않습니다.</div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" onclick="closeMemberReservation()">취소</button>
+        <button type="button" class="primary" onclick="submitMemberReservation()">예약 등록</button>
+      </div>
+    </div>
+  </div>
+
   <section id="tab-reservations" class="tab-panel">
     <section class="card">
       <div class="row" style="justify-content:space-between">
@@ -533,6 +824,135 @@
     </div>
   </div>
 
+
+  <section id="tab-room-status" class="tab-panel">
+    <section class="card">
+      <div class="status-toolbar">
+        <div>
+          <h2 style="margin-bottom:4px">녹음실 현황</h2>
+          <div class="muted">선택한 날짜의 녹음실별 시간대 예약 현황을 확인합니다.</div>
+        </div>
+        <button type="button" onclick="loadAll()">새로고침</button>
+      </div>
+
+      <div class="status-date-card">
+        <div class="status-date-icon">▣</div>
+        <div class="grow">
+          <div class="muted" style="margin-bottom:4px">예약 현황 날짜</div>
+          <div class="status-picker-shell">
+            <span id="roomStatusDateText" class="status-picker-value">날짜 선택</span>
+            <span class="status-picker-arrow">⌄</span>
+            <input id="roomStatusDate" type="date" aria-label="예약 현황 날짜" onchange="syncStatusPickerLabels(); renderRoomStatus()">
+          </div>
+        </div>
+      </div>
+
+      <div class="status-legend" style="margin-top:12px">
+        <div class="legend-item"><span class="legend-dot legend-available"></span>예약 가능</div>
+        <div class="legend-item"><span class="legend-dot legend-reserved"></span>예약됨</div>
+        <div class="legend-item"><span class="legend-dot legend-blocked"></span>운영외/예약불가/지난시간</div>
+      </div>
+
+      <div id="roomStatusList" style="margin-top:14px"></div>
+    </section>
+  </section>
+
+  <section id="tab-usage" class="tab-panel">
+    <section class="card">
+      <div class="status-toolbar">
+        <div>
+          <h2 style="margin-bottom:4px">이용현황</h2>
+          <div class="muted">월별 예약시간 합계를 기준으로 이용 순위를 보여줍니다.</div>
+        </div>
+        <button type="button" onclick="loadAll()">새로고침</button>
+      </div>
+
+      <div class="status-date-card">
+        <div class="status-date-icon">▥</div>
+        <div class="grow">
+          <div class="muted" style="margin-bottom:4px">기간 선택</div>
+          <div class="status-picker-shell">
+            <span id="usageMonthText" class="status-picker-value">기간 선택</span>
+            <span class="status-picker-arrow">⌄</span>
+            <input id="usageMonth" type="month" aria-label="이용현황 기간 선택" onchange="syncStatusPickerLabels(); renderUsageStatus()">
+          </div>
+        </div>
+      </div>
+
+      <div class="usage-hero">
+        <div class="usage-trophy">🏆</div>
+        <div id="usageTitle" class="usage-title">이용 순위 TOP 10</div>
+        <div class="usage-subtitle">취소된 예약은 이용시간에서 제외됩니다.</div>
+      </div>
+
+      <div id="usageList" class="usage-list"></div>
+    </section>
+  </section>
+
+
+  <section id="tab-practice" class="tab-panel">
+    <section class="card">
+      <div class="status-toolbar">
+        <div>
+          <h2 style="margin-bottom:4px">연습일지체크</h2>
+          <div class="muted">학생을 누르면 최신 날짜부터 연습내역이 아래로 표시됩니다.</div>
+        </div>
+        <button type="button" onclick="loadPracticeSelectedUser()">새로고침</button>
+      </div>
+
+      <input id="practiceMemberSearch" class="grow" placeholder="학생 이름 또는 전화번호 검색" oninput="renderPracticeMembers()" style="width:100%">
+      <div id="practiceMemberList" class="practice-member-list"></div>
+
+      <div id="practiceSelectedEmpty" class="practice-empty">학생을 선택하면 연습일지가 아래에 표시됩니다.</div>
+      <div id="practiceSelectedPanel" style="display:none">
+        <div class="member-card-head">
+          <div>
+            <h2 id="practiceSelectedName" style="margin:0"></h2>
+            <div id="practiceSelectedMeta" class="muted" style="margin-top:4px"></div>
+          </div>
+          <button class="primary" onclick="openAdminPracticeJournalCreate()">연습일지 등록</button>
+        </div>
+        <div id="practiceSummary" class="practice-summary"></div>
+        <div id="practiceLogs"></div>
+      </div>
+    </section>
+  </section>
+
+  <div id="practiceCreateModal" class="modal-backdrop" onclick="if(event.target===this) closeAdminPracticeJournalCreate()">
+    <div class="modal-card">
+      <h2>연습일지 등록</h2>
+      <div class="field">
+        <label class="muted">연습이 끝난 예약</label>
+        <select id="practiceCreateReservation"></select>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label class="muted">연습내용</label>
+        <textarea id="practiceCreateContent" maxlength="3000" placeholder="오늘 연습한 내용, 어려웠던 점, 다음 목표 등을 입력해 주세요."></textarea>
+      </div>
+      <div class="muted" style="margin-top:7px">관리자가 먼저 등록한 예약은 학생 앱에서 작성 팝업이 나오지 않습니다.</div>
+      <div class="modal-actions">
+        <button type="button" onclick="closeAdminPracticeJournalCreate()">취소</button>
+        <button type="button" class="primary" onclick="saveAdminPracticeJournalCreate()">등록</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="practiceEditModal" class="modal-backdrop" onclick="if(event.target===this) closeAdminPracticeJournalEdit()">
+    <div class="modal-card">
+      <h2>연습일지 수정</h2>
+      <input id="practiceEditId" type="hidden">
+      <div id="practiceEditReservationInfo" class="muted" style="margin-bottom:10px"></div>
+      <div class="field">
+        <label class="muted">연습내용</label>
+        <textarea id="practiceEditContent" maxlength="3000"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" onclick="closeAdminPracticeJournalEdit()">취소</button>
+        <button type="button" class="primary" onclick="saveAdminPracticeJournalEdit()">수정 저장</button>
+      </div>
+    </div>
+  </div>
+
   <section id="tab-password" class="tab-panel">
     <section class="card">
       <h2>관리자 비밀번호 변경</h2>
@@ -550,7 +970,14 @@ let reservationRows = [];
 let reservationRoomMap = {};
 let authorizedUserRows = [];
 let memberCategories = [];
+let blockRows = [];
 let selectedBlockHours = new Set();
+let selectedMemberReservationHours = new Set();
+let memberReservationCurrentUser = null;
+let expandedRoomStatusIds = new Set();
+let practiceSelectedUserId = null;
+let practiceSelectedData = null;
+let practicePendingRows = [];
 
 function switchAdminTab(tabName) {
   document.querySelectorAll('.tab-panel').forEach(panel => {
@@ -721,6 +1148,222 @@ function blockHourISO(dateValue, hour) {
   return new Date(y, m - 1, d, hour, 0, 0, 0).toISOString();
 }
 
+
+function syncStatusPickerLabels() {
+  const dateInput = document.getElementById('roomStatusDate');
+  const dateText = document.getElementById('roomStatusDateText');
+  if (dateInput && dateText) {
+    if (dateInput.value) {
+      const [y,m,d] = dateInput.value.split('-');
+      dateText.textContent = `${Number(y)}. ${Number(m)}. ${Number(d)}.`;
+    } else {
+      dateText.textContent = '날짜 선택';
+    }
+  }
+
+  const monthInput = document.getElementById('usageMonth');
+  const monthText = document.getElementById('usageMonthText');
+  if (monthInput && monthText) {
+    if (monthInput.value) {
+      const [y,m] = monthInput.value.split('-');
+      monthText.textContent = `${Number(y)}년 ${Number(m)}월`;
+    } else {
+      monthText.textContent = '기간 선택';
+    }
+  }
+}
+
+function ensureStatusDefaults() {
+  const today = localTodayKey();
+  const roomStatusDate = document.getElementById('roomStatusDate');
+  if (roomStatusDate && !roomStatusDate.value) roomStatusDate.value = today;
+
+  const now = new Date();
+  const monthValue = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const usageMonth = document.getElementById('usageMonth');
+  if (usageMonth && !usageMonth.value) usageMonth.value = monthValue;
+  syncStatusPickerLabels();
+}
+
+function isoOverlapsHour(startISO, endISO, dateKey, hour) {
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+  const [y,m,d] = dateKey.split('-').map(Number);
+  const hourStart = new Date(y, m-1, d, hour, 0, 0, 0);
+  const hourEnd = new Date(y, m-1, d, hour+1, 0, 0, 0);
+  return start < hourEnd && end > hourStart;
+}
+
+function roomHourState(room, dateKey, hour) {
+  const openHour = room.open_hour ?? 0;
+  const closeHour = room.close_hour ?? 24;
+
+  if (room.is_paused || hour < openHour || hour >= closeHour) return 'blocked';
+
+  const blocked = blockRows.some(b =>
+    Number(b.room_id) === Number(room.id) &&
+    isoOverlapsHour(b.start_at, b.end_at, dateKey, hour)
+  );
+  if (blocked) return 'blocked';
+
+  const reserved = reservationRows.some(r =>
+    Number(r.room_id) === Number(room.id) &&
+    r.status !== '취소됨' &&
+    isoOverlapsHour(r.start_at, r.end_at, dateKey, hour)
+  );
+  if (reserved) return 'reserved';
+
+  const now = new Date();
+  if (dateKey < localTodayKey()) return 'blocked';
+  if (dateKey === localTodayKey() && hour < now.getHours()) return 'blocked';
+
+  return 'available';
+}
+
+function roomReservationCount(roomId, dateKey) {
+  return reservationRows.filter(r =>
+    Number(r.room_id) === Number(roomId) &&
+    r.status !== '취소됨' &&
+    localDateKey(r.start_at) === dateKey
+  ).length;
+}
+
+function toggleRoomStatus(id) {
+  if (expandedRoomStatusIds.has(id)) {
+    expandedRoomStatusIds.delete(id);
+  } else {
+    expandedRoomStatusIds.add(id);
+  }
+  renderRoomStatus();
+}
+
+function renderRoomStatus() {
+  const input = document.getElementById('roomStatusDate');
+  const container = document.getElementById('roomStatusList');
+  if (!input || !container) return;
+
+  const dateKey = input.value || localTodayKey();
+
+  container.innerHTML = rooms.map(room => {
+    const openHour = room.open_hour ?? 0;
+    const closeHour = room.close_hour ?? 24;
+    const hours = [];
+    for (let hour=openHour; hour<closeHour; hour++) hours.push(hour);
+
+    const count = roomReservationCount(room.id, dateKey);
+    const expanded = expandedRoomStatusIds.has(room.id);
+    const summary = room.is_paused
+      ? `사용중지 · ${escapeHtml(room.pause_reason || '사유 없음')}`
+      : count
+        ? `${count}건 예약 · 운영 ${String(openHour).padStart(2,'0')}:00 ~ ${String(closeHour).padStart(2,'0')}:00`
+        : `예약 없음 · 운영 ${String(openHour).padStart(2,'0')}:00 ~ ${String(closeHour).padStart(2,'0')}:00`;
+
+    const hourHtml = hours.length
+      ? hours.map(hour => {
+          const state = roomHourState(room, dateKey, hour);
+          const label = state === 'available' ? '예약 가능' : state === 'reserved' ? '예약됨' : '예약불가';
+          return `<div class="room-hour ${state}" title="${label}">${String(hour).padStart(2,'0')}</div>`;
+        }).join('')
+      : '<div class="muted">설정된 운영시간이 없습니다.</div>';
+
+    return `
+      <div class="room-status-card ${expanded ? 'expanded' : ''}">
+        <button type="button" class="room-status-head" onclick="toggleRoomStatus(${room.id})">
+          <div class="room-status-left">
+            <div class="room-status-icon">▣</div>
+            <div>
+              <div class="room-status-name">${escapeHtml(room.name)}</div>
+              <div class="room-status-summary">${summary}</div>
+            </div>
+          </div>
+          <div class="room-status-chevron">${expanded ? '⌃' : '⌄'}</div>
+        </button>
+        <div class="room-status-body">
+          <div style="font-weight:800;margin-bottom:4px">시간대별 예약 현황</div>
+          <div class="room-status-hours">${hourHtml}</div>
+        </div>
+      </div>`;
+  }).join('') || '<div class="usage-empty">등록된 녹음실이 없습니다.</div>';
+}
+
+function monthKeyFromISO(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function reservationDurationHours(row) {
+  const start = new Date(row.start_at);
+  const end = new Date(row.end_at);
+  const hours = (end - start) / 3600000;
+  return Number.isFinite(hours) && hours > 0 ? hours : 0;
+}
+
+function memberForReservation(row) {
+  return authorizedUserRows.find(u =>
+    String(u.name || '') === String(row.nickname || '') &&
+    String(u.phone_last4 || '') === String(row.phone_last4 || '')
+  );
+}
+
+function formatHours(hours) {
+  if (Math.abs(hours - Math.round(hours)) < 0.001) return `${Math.round(hours)}시간`;
+  return `${hours.toFixed(1)}시간`;
+}
+
+function renderUsageStatus() {
+  const input = document.getElementById('usageMonth');
+  const list = document.getElementById('usageList');
+  const title = document.getElementById('usageTitle');
+  if (!input || !list || !title) return;
+
+  const monthKey = input.value;
+  if (!monthKey) return;
+
+  const [year, month] = monthKey.split('-').map(Number);
+  title.textContent = `${year}년 ${month}월 이용 순위 TOP 10`;
+
+  const totals = new Map();
+
+  reservationRows
+    .filter(r => r.status !== '취소됨' && monthKeyFromISO(r.start_at) === monthKey)
+    .forEach(r => {
+      const key = `${r.nickname || ''}\u0000${r.phone_last4 || ''}`;
+      const previous = totals.get(key) || {
+        name: r.nickname || '이름 없음',
+        phone_last4: r.phone_last4 || '',
+        hours: 0,
+        category_name: null,
+      };
+      previous.hours += reservationDurationHours(r);
+
+      const member = memberForReservation(r);
+      if (member?.category_name) previous.category_name = member.category_name;
+      totals.set(key, previous);
+    });
+
+  const ranking = Array.from(totals.values())
+    .sort((a,b) => b.hours - a.hours || String(a.name).localeCompare(String(b.name), 'ko'))
+    .slice(0, 10);
+
+  list.innerHTML = ranking.map((row, index) => {
+    const rank = index + 1;
+    return `
+      <div class="usage-card rank-${rank}">
+        <div class="usage-rank">${rank}</div>
+        <div>
+          <div class="usage-name">${escapeHtml(row.name)}</div>
+          <div class="usage-meta">
+            ${row.category_name
+              ? `<span class="category-pill">${escapeHtml(row.category_name)}</span>`
+              : '<span class="muted">미지정</span>'}
+            <span class="muted">총 ${formatHours(row.hours)}</span>
+          </div>
+        </div>
+        <div class="usage-hours">${formatHours(row.hours)}</div>
+      </div>`;
+  }).join('') || '<div class="usage-empty">선택한 달의 예약 이용내역이 없습니다.</div>';
+}
+
 function renderReservations() {
   const selectedDate = document.getElementById('reservationDate').value;
   const searchInput = document.getElementById('reservationSearch');
@@ -744,7 +1387,7 @@ function renderReservations() {
       <td data-label="예약시간">${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
       <td data-label="예약자">${escapeHtml(r.nickname)}</td>
       <td data-label="전화 끝 4자리">${escapeHtml(r.phone_last4)}</td>
-      <td data-label="사유">${r.status === '취소됨' ? escapeHtml(r.cancel_reason || '사유 없음') : '-'}</td>
+      <td data-label="사유">${r.cancel_reason ? escapeHtml(r.cancel_reason) : '<span class="muted">-</span>'}</td>
       <td data-label="관리" class="actions"><div class="mobile-actions">
         ${r.status !== '취소됨'
           ? `${r.status !== '사용종료' ? `<button onclick='openReservationEditor(${JSON.stringify(r.id)})'>수정</button>` : ''}
@@ -1112,6 +1755,208 @@ async function createAuthorizedUser() {
   } catch(e) { alert(e.message); }
 }
 
+function localHourDate(dateKey, hour) {
+  const [year, month, day] = String(dateKey).split('-').map(Number);
+  return new Date(year, month - 1, day, hour, 0, 0, 0);
+}
+
+function memberReservationOverlap(start, end, roomId) {
+  const reservationConflict = reservationRows.some(r =>
+    Number(r.room_id) === Number(roomId) &&
+    r.status !== '취소됨' &&
+    new Date(r.start_at) < end &&
+    new Date(r.end_at) > start
+  );
+  if (reservationConflict) return true;
+
+  return blockRows.some(b =>
+    Number(b.room_id) === Number(roomId) &&
+    new Date(b.start_at) < end &&
+    new Date(b.end_at) > start
+  );
+}
+
+function memberReservedRemainingHours(user) {
+  if (!user) return 0;
+  const now = new Date();
+  let ms = 0;
+  reservationRows.forEach(r => {
+    if (r.status === '취소됨') return;
+    if (String(r.nickname || '') !== String(user.name || '')) return;
+    if (String(r.phone_last4 || '') !== String(user.phone_last4 || '')) return;
+    const end = new Date(r.end_at);
+    if (end <= now) return;
+    const start = new Date(r.start_at) > now ? new Date(r.start_at) : now;
+    if (end > start) ms += end - start;
+  });
+  return ms / 3600000;
+}
+
+function memberReservationNeedsPassword() {
+  const user = memberReservationCurrentUser;
+  if (!user || !user.booking_limit_hours || selectedMemberReservationHours.size === 0) return false;
+  const selectedHours = selectedMemberReservationHours.size;
+  const limit = Number(user.booking_limit_hours);
+  if (selectedHours > limit) return true;
+  if (user.allow_additional_booking) return false;
+  return memberReservedRemainingHours(user) + selectedHours > limit + 1e-9;
+}
+
+function updateMemberReservationPolicyUI() {
+  const user = memberReservationCurrentUser;
+  if (!user) return;
+  const limit = user.booking_limit_hours ? `${user.booking_limit_hours}시간` : '자유';
+  const additional = user.allow_additional_booking ? '추가예약 ON' : '추가예약 OFF';
+  const reserved = memberReservedRemainingHours(user);
+  document.getElementById('memberReservationPolicyText').innerHTML = `
+    <span class="badge">기본 ${escapeHtml(limit)}</span>
+    <span class="badge">${escapeHtml(additional)}</span>
+    ${user.booking_limit_hours && !user.allow_additional_booking ? `<span class="muted">현재 남은 예약 ${reserved.toFixed(reserved % 1 ? 1 : 0)}시간</span>` : ''}`;
+
+  const selected = Array.from(selectedMemberReservationHours).sort((a,b)=>a-b);
+  const selectedText = document.getElementById('memberReservationSelectedText');
+  if (!selected.length) {
+    selectedText.textContent = '선택된 시간이 없습니다.';
+  } else {
+    const start = selected[0];
+    const end = selected[selected.length - 1] + 1;
+    selectedText.textContent = `선택: ${String(start).padStart(2,'0')}:00 ~ ${String(end).padStart(2,'0')}:00 · ${selected.length}시간`;
+  }
+
+  const needsPassword = memberReservationNeedsPassword();
+  const warning = document.getElementById('memberReservationWarning');
+  const passwordWrap = document.getElementById('memberReservationPasswordWrap');
+  if (needsPassword) {
+    warning.textContent = '회원에게 설정된 예약시간을 초과합니다. 관리자 비밀번호를 입력하면 이번 예약에 한해 추가시간을 승인할 수 있습니다.';
+    warning.classList.add('active');
+    passwordWrap.classList.add('active');
+  } else {
+    warning.classList.remove('active');
+    passwordWrap.classList.remove('active');
+    document.getElementById('memberReservationAdminPassword').value = '';
+  }
+}
+
+function clearMemberReservationHours() {
+  selectedMemberReservationHours.clear();
+  updateMemberReservationPolicyUI();
+}
+
+function toggleMemberReservationHour(hour) {
+  const dateKey = document.getElementById('memberReservationDate').value;
+  const roomId = Number(document.getElementById('memberReservationRoom').value);
+  const room = rooms.find(r => r.id === roomId);
+  if (!dateKey || !room) return;
+
+  const start = localHourDate(dateKey, hour);
+  const end = localHourDate(dateKey, hour + 1);
+  const now = new Date();
+  const openHour = Number(room.open_hour ?? 0);
+  const closeHour = Number(room.close_hour ?? 24);
+  if (room.is_paused || hour < openHour || hour >= closeHour || start < now || memberReservationOverlap(start, end, roomId)) return;
+
+  const next = new Set(selectedMemberReservationHours);
+  if (next.has(hour)) next.delete(hour); else next.add(hour);
+  const sorted = Array.from(next).sort((a,b)=>a-b);
+  const contiguous = sorted.every((value,index) => index === 0 || value === sorted[index-1] + 1);
+  if (!contiguous) {
+    alert('관리자 예약은 연속된 시간만 선택해 주세요.');
+    return;
+  }
+  selectedMemberReservationHours = next;
+  renderMemberReservationHours();
+}
+
+function renderMemberReservationHours() {
+  const container = document.getElementById('memberReservationHours');
+  if (!container) return;
+  const dateKey = document.getElementById('memberReservationDate').value;
+  const roomId = Number(document.getElementById('memberReservationRoom').value);
+  const room = rooms.find(r => r.id === roomId);
+  const now = new Date();
+
+  container.innerHTML = Array.from({length:24}, (_,hour) => {
+    let disabled = !dateKey || !room;
+    let reserved = false;
+    if (!disabled) {
+      const start = localHourDate(dateKey, hour);
+      const end = localHourDate(dateKey, hour + 1);
+      const openHour = Number(room.open_hour ?? 0);
+      const closeHour = Number(room.close_hour ?? 24);
+      reserved = memberReservationOverlap(start, end, roomId);
+      disabled = room.is_paused || hour < openHour || hour >= closeHour || start < now || reserved;
+    }
+    const selected = selectedMemberReservationHours.has(hour);
+    return `<button type="button" class="hour-button member-booking-hour ${selected?'selected':''} ${disabled?'disabled':''} ${reserved?'reserved':''}" ${disabled?'disabled':''} onclick="toggleMemberReservationHour(${hour})">${String(hour).padStart(2,'0')}시</button>`;
+  }).join('');
+  updateMemberReservationPolicyUI();
+}
+
+function openMemberReservation(id) {
+  const user = authorizedUserRows.find(u => u.id === id);
+  if (!user) return alert('회원 정보를 찾을 수 없습니다.');
+  memberReservationCurrentUser = user;
+  selectedMemberReservationHours.clear();
+  document.getElementById('memberReservationUserId').value = user.id;
+  document.getElementById('memberReservationMemberName').textContent = `${user.name} · ${user.phone_last4}`;
+  document.getElementById('memberReservationAdminPassword').value = '';
+
+  const today = localTodayKey();
+  const dateInput = document.getElementById('memberReservationDate');
+  dateInput.min = today;
+  dateInput.value = today;
+
+  const roomSelect = document.getElementById('memberReservationRoom');
+  roomSelect.innerHTML = rooms.filter(r => !r.is_paused).map(r => `<option value="${r.id}">${escapeHtml(r.name)} · ${String(r.open_hour ?? 0).padStart(2,'0')}:00~${String(r.close_hour ?? 24).padStart(2,'0')}:00</option>`).join('');
+
+  document.getElementById('memberReservationModal').classList.add('active');
+  updateMemberReservationPolicyUI();
+  renderMemberReservationHours();
+}
+
+function closeMemberReservation() {
+  document.getElementById('memberReservationModal').classList.remove('active');
+  memberReservationCurrentUser = null;
+  selectedMemberReservationHours.clear();
+  document.getElementById('memberReservationAdminPassword').value = '';
+}
+
+async function submitMemberReservation() {
+  const user = memberReservationCurrentUser;
+  if (!user) return alert('회원 정보를 찾을 수 없습니다.');
+  const dateKey = document.getElementById('memberReservationDate').value;
+  const roomId = Number(document.getElementById('memberReservationRoom').value);
+  const hours = Array.from(selectedMemberReservationHours).sort((a,b)=>a-b);
+  if (!dateKey || !roomId) return alert('날짜와 녹음실을 선택해 주세요.');
+  if (!hours.length) return alert('예약할 시간을 선택해 주세요.');
+
+  const contiguous = hours.every((value,index) => index === 0 || value === hours[index-1] + 1);
+  if (!contiguous) return alert('연속된 시간만 선택해 주세요.');
+
+  const needsPassword = memberReservationNeedsPassword();
+  const adminPassword = document.getElementById('memberReservationAdminPassword').value;
+  if (needsPassword && !adminPassword) return alert('추가시간 승인을 위해 관리자 비밀번호를 입력해 주세요.');
+
+  const start = localHourDate(dateKey, hours[0]);
+  const end = localHourDate(dateKey, hours[hours.length - 1] + 1);
+  try {
+    await api(`/api/admin/users/${user.id}/reservations`, {
+      method:'POST',
+      body:JSON.stringify({
+        room_id: roomId,
+        start_at: start.toISOString(),
+        end_at: end.toISOString(),
+        admin_password: adminPassword || null,
+      })
+    });
+    closeMemberReservation();
+    await loadAll();
+    alert(`${user.name} 회원 예약이 등록되었습니다.`);
+  } catch(e) {
+    alert(e.message);
+  }
+}
+
 function openMemberEditor(id) {
   const row = authorizedUserRows.find(u => u.id === id);
   if (!row) return alert('회원 정보를 찾을 수 없습니다.');
@@ -1197,6 +2042,7 @@ function renderAuthorizedUsers() {
       <td data-label="예약시간 제한">${u.booking_limit_hours ? `${u.booking_limit_hours}시간` : '<span class="member-limit-free">자유</span>'}</td>
       <td data-label="관리" class="actions"><div class="mobile-actions">
         <button onclick="openMemberEditor(${u.id})">수정</button>
+        <button class="primary" onclick="openMemberReservation(${u.id})">예약</button>
         <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
       </div></td>
     </tr>`).join('') || `<tr><td colspan="5" class="muted empty-row">${emptyMessage}</td></tr>`;
@@ -1205,6 +2051,134 @@ function renderAuthorizedUsers() {
 async function loadAuthorizedUsers() {
   authorizedUserRows = await api('/api/admin/users');
   renderAuthorizedUsers();
+  renderPracticeMembers();
+}
+
+
+function renderPracticeMembers() {
+  const list = document.getElementById('practiceMemberList');
+  if (!list) return;
+  const keyword = (document.getElementById('practiceMemberSearch')?.value || '').trim().toLocaleLowerCase('ko-KR');
+  let users = authorizedUserRows;
+  if (keyword) {
+    users = users.filter(u =>
+      String(u.name || '').toLocaleLowerCase('ko-KR').includes(keyword) ||
+      String(u.phone_last4 || '').includes(keyword)
+    );
+  }
+
+  list.innerHTML = users.map(u => `
+    <button type="button" class="practice-member-button ${Number(practiceSelectedUserId)===Number(u.id)?'active':''}" onclick="selectPracticeUser(${u.id})">
+      <span><strong>${escapeHtml(u.name)}</strong><span class="muted" style="display:block;margin-top:3px">${escapeHtml(u.phone_last4)}${u.category_name ? ' · '+escapeHtml(u.category_name) : ''}</span></span>
+      <span>›</span>
+    </button>
+  `).join('') || '<div class="practice-empty">검색 결과가 없습니다.</div>';
+}
+
+async function selectPracticeUser(userId) {
+  practiceSelectedUserId = Number(userId);
+  renderPracticeMembers();
+  await loadPracticeSelectedUser();
+}
+
+function practiceHoursText(value) {
+  const hours = Number(value || 0);
+  return Math.abs(hours - Math.round(hours)) < 0.001 ? `${Math.round(hours)}시간` : `${hours.toFixed(1)}시간`;
+}
+
+function practiceDateText(iso) {
+  return new Date(iso).toLocaleDateString('ko-KR', {year:'numeric', month:'long', day:'numeric', weekday:'short'});
+}
+
+function practiceTimeText(startISO, endISO) {
+  const f = new Intl.DateTimeFormat('ko-KR', {hour:'2-digit', minute:'2-digit', hour12:false});
+  return `${f.format(new Date(startISO))} ~ ${f.format(new Date(endISO))}`;
+}
+
+async function loadPracticeSelectedUser() {
+  const empty = document.getElementById('practiceSelectedEmpty');
+  const panel = document.getElementById('practiceSelectedPanel');
+  if (!practiceSelectedUserId) {
+    if (empty) empty.style.display = '';
+    if (panel) panel.style.display = 'none';
+    return;
+  }
+  try {
+    const [data, pending] = await Promise.all([
+      api(`/api/admin/practice-journals?user_id=${practiceSelectedUserId}`),
+      api(`/api/admin/practice-journals/pending?user_id=${practiceSelectedUserId}`),
+    ]);
+    practiceSelectedData = data;
+    practicePendingRows = pending;
+    const user = authorizedUserRows.find(u => Number(u.id) === Number(practiceSelectedUserId));
+    if (!user) return;
+
+    empty.style.display = 'none';
+    panel.style.display = '';
+    document.getElementById('practiceSelectedName').textContent = user.name;
+    document.getElementById('practiceSelectedMeta').textContent = `${user.phone_last4}${user.category_name ? ' · '+user.category_name : ''}`;
+    document.getElementById('practiceSummary').innerHTML = `
+      <span class="badge">누적 연습 ${practiceHoursText(data.total_hours)}</span>
+      <span class="badge">일지 ${Number(data.count || 0)}건</span>
+      <span class="badge">미작성 ${pending.length}건</span>
+    `;
+
+    document.getElementById('practiceLogs').innerHTML = (data.items || []).map(row => `
+      <div class="practice-log-card">
+        <div class="practice-log-head">
+          <div>
+            <div class="practice-log-date">${practiceDateText(row.start_at)}</div>
+            <div class="practice-log-time">${escapeHtml(row.room_name || '녹음실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</div>
+          </div>
+          <button type="button" onclick='openAdminPracticeJournalEdit(${JSON.stringify(row.id)})'>수정</button>
+        </div>
+        <div class="practice-log-content">${escapeHtml(row.content)}</div>
+      </div>
+    `).join('') || '<div class="practice-empty">작성된 연습일지가 없습니다.</div>';
+  } catch(e) { alert(e.message); }
+}
+
+function openAdminPracticeJournalCreate() {
+  if (!practiceSelectedUserId) return alert('학생을 먼저 선택해 주세요.');
+  if (!practicePendingRows.length) return alert('연습이 끝났고 아직 일지가 없는 예약이 없습니다.');
+  document.getElementById('practiceCreateReservation').innerHTML = practicePendingRows.map(row => `
+    <option value="${escapeHtml(row.reservation_id)}">${practiceDateText(row.start_at)} · ${escapeHtml(row.room_name || '녹음실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</option>
+  `).join('');
+  document.getElementById('practiceCreateContent').value = '';
+  document.getElementById('practiceCreateModal').classList.add('active');
+}
+function closeAdminPracticeJournalCreate() { document.getElementById('practiceCreateModal').classList.remove('active'); }
+
+async function saveAdminPracticeJournalCreate() {
+  const reservation_id = document.getElementById('practiceCreateReservation').value;
+  const content = document.getElementById('practiceCreateContent').value.trim();
+  if (!reservation_id || !content) return alert('예약과 연습내용을 확인해 주세요.');
+  try {
+    await api('/api/admin/practice-journals', {method:'POST', body:JSON.stringify({user_id:practiceSelectedUserId,reservation_id,content})});
+    closeAdminPracticeJournalCreate();
+    await loadPracticeSelectedUser();
+  } catch(e) { alert(e.message); }
+}
+
+function openAdminPracticeJournalEdit(journalId) {
+  const row = practiceSelectedData?.items?.find(item => item.id === journalId);
+  if (!row) return alert('연습일지를 찾을 수 없습니다.');
+  document.getElementById('practiceEditId').value = row.id;
+  document.getElementById('practiceEditReservationInfo').textContent = `${practiceDateText(row.start_at)} · ${row.room_name || '녹음실'} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}`;
+  document.getElementById('practiceEditContent').value = row.content || '';
+  document.getElementById('practiceEditModal').classList.add('active');
+}
+function closeAdminPracticeJournalEdit() { document.getElementById('practiceEditModal').classList.remove('active'); }
+
+async function saveAdminPracticeJournalEdit() {
+  const id = document.getElementById('practiceEditId').value;
+  const content = document.getElementById('practiceEditContent').value.trim();
+  if (!id || !content) return alert('연습내용을 입력해 주세요.');
+  try {
+    await api('/api/admin/practice-journals/' + id, {method:'PATCH', body:JSON.stringify({content})});
+    closeAdminPracticeJournalEdit();
+    await loadPracticeSelectedUser();
+  } catch(e) { alert(e.message); }
 }
 
 async function changeAdminPassword() {
@@ -1264,8 +2238,8 @@ async function loadAll() {
     }
     renderBlockHourButtons();
 
-    const blocks = await api('/api/admin/blocks');
-    document.getElementById('blocks').innerHTML = blocks.slice(0,20).map(b=>`
+    blockRows = await api('/api/admin/blocks');
+    document.getElementById('blocks').innerHTML = blockRows.slice(0,20).map(b=>`
       <div class="room">
         <strong>${escapeHtml(roomMap[b.room_id]||('녹음실 #'+b.room_id))}</strong>
         <div class="muted">${fmt(b.start_at)} ~ ${fmt(b.end_at)} · ${escapeHtml(b.reason||'사유 없음')}</div>
@@ -1275,6 +2249,9 @@ async function loadAll() {
     reservationRows = await api('/api/admin/reservations?include_cancelled=true');
     reservationRoomMap = roomMap;
     renderReservations();
+    ensureStatusDefaults();
+    renderRoomStatus();
+    renderUsageStatus();
   } catch(e) {
     alert(e.message);
   }
@@ -1286,6 +2263,7 @@ function escapeHtml(v) {
 
 restoreAdminTab();
 ensureBlockDate();
+ensureStatusDefaults();
 renderBlockHourButtons();
 loadAll();
 setInterval(() => {
