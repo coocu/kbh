@@ -155,7 +155,14 @@
       color:#0a84ff; background:color-mix(in srgb, #0a84ff 11%, transparent);
       flex:0 0 auto;
     }
-    .status-date-card input { min-width:150px; }
+    .status-date-card > .grow { min-width:0; width:100%; }
+    .status-date-card input[type="date"],
+    .status-date-card input[type="month"] {
+      display:block;
+      width:100%;
+      max-width:100%;
+      min-width:0 !important;
+    }
     .status-legend {
       display:flex; gap:16px; flex-wrap:wrap; padding:12px 14px;
       border:1px solid color-mix(in srgb, CanvasText 10%, transparent);
@@ -276,8 +283,22 @@
       .hour-button { min-height:44px; font-size:13px; padding:8px 2px; }
 
       .status-toolbar { display:grid; grid-template-columns:1fr; }
-      .status-date-card { padding:12px; }
-      .status-date-card input { min-width:0; width:100%; }
+      .status-date-card {
+        display:grid;
+        grid-template-columns:42px minmax(0,1fr);
+        align-items:center;
+        gap:12px;
+        padding:12px;
+      }
+      .status-date-card > .grow { min-width:0; width:100%; }
+      .status-date-card input[type="date"],
+      .status-date-card input[type="month"] {
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+        box-sizing:border-box;
+        font-size:16px;
+      }
       .status-legend { justify-content:space-between; gap:8px; }
       .room-status-hours { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
       .room-hour { min-height:46px; }
