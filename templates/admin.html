@@ -42,7 +42,7 @@
       max-width:1100px;
       margin:0 auto;
       display:grid;
-      grid-template-columns:repeat(4,minmax(0,1fr));
+      grid-template-columns:repeat(6,minmax(0,1fr));
       gap:8px;
     }
     .tab-button {
@@ -140,6 +140,102 @@
     .room-actions button { white-space:nowrap; }
     .reservation-table { min-width:850px; }
 
+    .status-toolbar {
+      display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      margin-bottom:14px;
+    }
+    .status-date-card {
+      display:flex; align-items:center; gap:12px; padding:14px 16px;
+      border:1px solid color-mix(in srgb, CanvasText 13%, transparent);
+      border-radius:18px; background:Canvas;
+    }
+    .status-date-icon {
+      width:42px; height:42px; border-radius:13px;
+      display:grid; place-items:center; font-size:24px;
+      color:#0a84ff; background:color-mix(in srgb, #0a84ff 11%, transparent);
+      flex:0 0 auto;
+    }
+    .status-date-card input { min-width:150px; }
+    .status-legend {
+      display:flex; gap:16px; flex-wrap:wrap; padding:12px 14px;
+      border:1px solid color-mix(in srgb, CanvasText 10%, transparent);
+      border-radius:16px;
+    }
+    .legend-item { display:flex; align-items:center; gap:7px; font-size:13px; }
+    .legend-dot { width:18px; height:18px; border-radius:6px; border:1px solid; }
+    .legend-available { background:color-mix(in srgb, #34c759 24%, transparent); border-color:#34c759; }
+    .legend-reserved { background:color-mix(in srgb, #ff453a 22%, transparent); border-color:#ff453a; }
+    .legend-blocked { background:color-mix(in srgb, CanvasText 10%, transparent); border-color:color-mix(in srgb, CanvasText 25%, transparent); }
+
+    .room-status-card {
+      border:1px solid color-mix(in srgb, CanvasText 13%, transparent);
+      border-radius:18px; margin:10px 0; overflow:hidden; background:Canvas;
+    }
+    .room-status-head {
+      width:100%; display:flex; align-items:center; justify-content:space-between;
+      gap:12px; padding:14px; border:0; border-radius:0; background:transparent; text-align:left;
+    }
+    .room-status-head:hover { background:color-mix(in srgb, CanvasText 3%, transparent); }
+    .room-status-left { display:flex; align-items:center; gap:11px; min-width:0; }
+    .room-status-icon {
+      width:42px; height:42px; border-radius:50%; display:grid; place-items:center;
+      color:#0a84ff; background:color-mix(in srgb, #0a84ff 13%, transparent); font-size:20px; flex:0 0 auto;
+    }
+    .room-status-name { font-weight:800; font-size:16px; }
+    .room-status-summary { margin-top:3px; font-size:13px; opacity:.65; }
+    .room-status-chevron { color:#0a84ff; font-size:20px; font-weight:900; }
+    .room-status-body { padding:0 14px 15px; display:none; }
+    .room-status-card.expanded .room-status-body { display:block; }
+    .room-status-hours {
+      display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:7px; margin-top:10px;
+    }
+    .room-hour {
+      min-height:48px; border-radius:12px; display:grid; place-items:center;
+      border:1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      font-weight:800; font-size:14px; user-select:none;
+    }
+    .room-hour.available {
+      color:#248a3d; border-color:#34c759;
+      background:color-mix(in srgb, #34c759 19%, transparent);
+    }
+    .room-hour.reserved {
+      color:#ff453a; border-color:#ff453a;
+      background:color-mix(in srgb, #ff453a 18%, transparent);
+    }
+    .room-hour.blocked {
+      opacity:.55; background:color-mix(in srgb, CanvasText 8%, transparent);
+    }
+
+    .usage-hero { text-align:center; padding:10px 0 18px; }
+    .usage-trophy { font-size:46px; line-height:1; margin-bottom:8px; }
+    .usage-title { font-size:22px; font-weight:900; }
+    .usage-subtitle { margin-top:5px; font-size:13px; opacity:.55; }
+    .usage-list { display:grid; gap:10px; }
+    .usage-card {
+      display:grid; grid-template-columns:56px minmax(0,1fr) auto;
+      gap:12px; align-items:center; padding:14px;
+      border:1px solid color-mix(in srgb, CanvasText 12%, transparent);
+      border-radius:18px; background:Canvas;
+    }
+    .usage-rank {
+      width:48px; height:48px; border-radius:50%; display:grid; place-items:center;
+      font-weight:900; font-size:19px;
+      background:color-mix(in srgb, #0a84ff 13%, transparent); color:#0a84ff;
+    }
+    .usage-card.rank-1 { border:2px solid #ffd60a; }
+    .usage-card.rank-1 .usage-rank { background:color-mix(in srgb, #ffd60a 22%, transparent); color:#9a7100; }
+    .usage-card.rank-2 .usage-rank { background:color-mix(in srgb, #8e8e93 16%, transparent); color:#636366; }
+    .usage-card.rank-3 { border-color:#c87522; }
+    .usage-card.rank-3 .usage-rank { background:color-mix(in srgb, #c87522 18%, transparent); color:#9b5617; }
+    .usage-name { font-size:17px; font-weight:900; }
+    .usage-meta { margin-top:5px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .usage-hours {
+      min-width:78px; text-align:center; padding:9px 12px; border-radius:999px;
+      background:#0a84ff; color:white; font-weight:900;
+    }
+    .usage-empty { text-align:center; padding:28px 10px; opacity:.55; }
+
+
     @media (max-width:760px) {
       body { background:color-mix(in srgb, CanvasText 3%, Canvas); }
       header {
@@ -149,9 +245,15 @@
       header h1 { font-size:17px; line-height:1.25; }
       header button { min-height:38px; padding:8px 11px; font-size:13px; }
 
-      .admin-tabs { top:62px; padding:8px 8px; }
-      .admin-tabs-inner { gap:5px; }
-      .tab-button { min-height:42px; padding:8px 2px; font-size:11.5px; border-radius:11px; }
+      .admin-tabs { top:62px; padding:8px 8px; overflow-x:auto; scrollbar-width:none; }
+      .admin-tabs::-webkit-scrollbar { display:none; }
+      .admin-tabs-inner {
+        display:flex; gap:6px; width:max-content; max-width:none; margin:0;
+      }
+      .tab-button {
+        width:auto; min-width:88px; min-height:42px; padding:8px 10px;
+        font-size:12px; border-radius:11px; flex:0 0 auto;
+      }
 
       .wrap { padding:10px; gap:12px; }
       .grid { grid-template-columns:minmax(0,1fr); gap:12px; }
@@ -172,6 +274,16 @@
       .inline-check { min-height:46px; }
       .hour-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
       .hour-button { min-height:44px; font-size:13px; padding:8px 2px; }
+
+      .status-toolbar { display:grid; grid-template-columns:1fr; }
+      .status-date-card { padding:12px; }
+      .status-date-card input { min-width:0; width:100%; }
+      .status-legend { justify-content:space-between; gap:8px; }
+      .room-status-hours { grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; }
+      .room-hour { min-height:46px; }
+      .usage-card { grid-template-columns:50px minmax(0,1fr) auto; gap:9px; padding:12px; }
+      .usage-rank { width:44px; height:44px; }
+      .usage-hours { min-width:70px; padding:8px 10px; }
 
       /* 녹음실 한 줄을 모바일 카드처럼 정리 */
       #rooms .room { padding:14px 0; }
@@ -285,6 +397,8 @@
     <button type="button" class="tab-button active" data-tab="rooms" onclick="switchAdminTab('rooms')">녹음실 관리</button>
     <button type="button" class="tab-button" data-tab="members" onclick="switchAdminTab('members')">회원관리</button>
     <button type="button" class="tab-button" data-tab="reservations" onclick="switchAdminTab('reservations')">예약현황</button>
+    <button type="button" class="tab-button" data-tab="room-status" onclick="switchAdminTab('room-status')">녹음실 현황</button>
+    <button type="button" class="tab-button" data-tab="usage" onclick="switchAdminTab('usage')">이용현황</button>
     <button type="button" class="tab-button" data-tab="password" onclick="switchAdminTab('password')">비밀번호 변경</button>
   </div>
 </nav>
@@ -533,6 +647,63 @@
     </div>
   </div>
 
+
+  <section id="tab-room-status" class="tab-panel">
+    <section class="card">
+      <div class="status-toolbar">
+        <div>
+          <h2 style="margin-bottom:4px">녹음실 현황</h2>
+          <div class="muted">선택한 날짜의 녹음실별 시간대 예약 현황을 확인합니다.</div>
+        </div>
+        <button type="button" onclick="loadAll()">새로고침</button>
+      </div>
+
+      <div class="status-date-card">
+        <div class="status-date-icon">▣</div>
+        <div class="grow">
+          <div class="muted" style="margin-bottom:4px">예약 현황 날짜</div>
+          <input id="roomStatusDate" type="date" onchange="renderRoomStatus()">
+        </div>
+      </div>
+
+      <div class="status-legend" style="margin-top:12px">
+        <div class="legend-item"><span class="legend-dot legend-available"></span>예약 가능</div>
+        <div class="legend-item"><span class="legend-dot legend-reserved"></span>예약됨</div>
+        <div class="legend-item"><span class="legend-dot legend-blocked"></span>운영외/예약불가/지난시간</div>
+      </div>
+
+      <div id="roomStatusList" style="margin-top:14px"></div>
+    </section>
+  </section>
+
+  <section id="tab-usage" class="tab-panel">
+    <section class="card">
+      <div class="status-toolbar">
+        <div>
+          <h2 style="margin-bottom:4px">이용현황</h2>
+          <div class="muted">월별 예약시간 합계를 기준으로 이용 순위를 보여줍니다.</div>
+        </div>
+        <button type="button" onclick="loadAll()">새로고침</button>
+      </div>
+
+      <div class="status-date-card">
+        <div class="status-date-icon">▥</div>
+        <div class="grow">
+          <div class="muted" style="margin-bottom:4px">기간 선택</div>
+          <input id="usageMonth" type="month" onchange="renderUsageStatus()">
+        </div>
+      </div>
+
+      <div class="usage-hero">
+        <div class="usage-trophy">🏆</div>
+        <div id="usageTitle" class="usage-title">이용 순위 TOP 10</div>
+        <div class="usage-subtitle">취소된 예약은 이용시간에서 제외됩니다.</div>
+      </div>
+
+      <div id="usageList" class="usage-list"></div>
+    </section>
+  </section>
+
   <section id="tab-password" class="tab-panel">
     <section class="card">
       <h2>관리자 비밀번호 변경</h2>
@@ -550,7 +721,9 @@ let reservationRows = [];
 let reservationRoomMap = {};
 let authorizedUserRows = [];
 let memberCategories = [];
+let blockRows = [];
 let selectedBlockHours = new Set();
+let expandedRoomStatusIds = new Set();
 
 function switchAdminTab(tabName) {
   document.querySelectorAll('.tab-panel').forEach(panel => {
@@ -719,6 +892,197 @@ function blockHourISO(dateValue, hour) {
   const [y,m,d] = dateValue.split('-').map(Number);
   if (!y || !m || !d) return null;
   return new Date(y, m - 1, d, hour, 0, 0, 0).toISOString();
+}
+
+
+function ensureStatusDefaults() {
+  const today = localTodayKey();
+  const roomStatusDate = document.getElementById('roomStatusDate');
+  if (roomStatusDate && !roomStatusDate.value) roomStatusDate.value = today;
+
+  const now = new Date();
+  const monthValue = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const usageMonth = document.getElementById('usageMonth');
+  if (usageMonth && !usageMonth.value) usageMonth.value = monthValue;
+}
+
+function isoOverlapsHour(startISO, endISO, dateKey, hour) {
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+  const [y,m,d] = dateKey.split('-').map(Number);
+  const hourStart = new Date(y, m-1, d, hour, 0, 0, 0);
+  const hourEnd = new Date(y, m-1, d, hour+1, 0, 0, 0);
+  return start < hourEnd && end > hourStart;
+}
+
+function roomHourState(room, dateKey, hour) {
+  const openHour = room.open_hour ?? 0;
+  const closeHour = room.close_hour ?? 24;
+
+  if (room.is_paused || hour < openHour || hour >= closeHour) return 'blocked';
+
+  const blocked = blockRows.some(b =>
+    Number(b.room_id) === Number(room.id) &&
+    isoOverlapsHour(b.start_at, b.end_at, dateKey, hour)
+  );
+  if (blocked) return 'blocked';
+
+  const reserved = reservationRows.some(r =>
+    Number(r.room_id) === Number(room.id) &&
+    r.status !== '취소됨' &&
+    isoOverlapsHour(r.start_at, r.end_at, dateKey, hour)
+  );
+  if (reserved) return 'reserved';
+
+  const now = new Date();
+  if (dateKey < localTodayKey()) return 'blocked';
+  if (dateKey === localTodayKey() && hour < now.getHours()) return 'blocked';
+
+  return 'available';
+}
+
+function roomReservationCount(roomId, dateKey) {
+  return reservationRows.filter(r =>
+    Number(r.room_id) === Number(roomId) &&
+    r.status !== '취소됨' &&
+    localDateKey(r.start_at) === dateKey
+  ).length;
+}
+
+function toggleRoomStatus(id) {
+  if (expandedRoomStatusIds.has(id)) {
+    expandedRoomStatusIds.delete(id);
+  } else {
+    expandedRoomStatusIds.add(id);
+  }
+  renderRoomStatus();
+}
+
+function renderRoomStatus() {
+  const input = document.getElementById('roomStatusDate');
+  const container = document.getElementById('roomStatusList');
+  if (!input || !container) return;
+
+  const dateKey = input.value || localTodayKey();
+
+  container.innerHTML = rooms.map(room => {
+    const openHour = room.open_hour ?? 0;
+    const closeHour = room.close_hour ?? 24;
+    const hours = [];
+    for (let hour=openHour; hour<closeHour; hour++) hours.push(hour);
+
+    const count = roomReservationCount(room.id, dateKey);
+    const expanded = expandedRoomStatusIds.has(room.id);
+    const summary = room.is_paused
+      ? `사용중지 · ${escapeHtml(room.pause_reason || '사유 없음')}`
+      : count
+        ? `${count}건 예약 · 운영 ${String(openHour).padStart(2,'0')}:00 ~ ${String(closeHour).padStart(2,'0')}:00`
+        : `예약 없음 · 운영 ${String(openHour).padStart(2,'0')}:00 ~ ${String(closeHour).padStart(2,'0')}:00`;
+
+    const hourHtml = hours.length
+      ? hours.map(hour => {
+          const state = roomHourState(room, dateKey, hour);
+          const label = state === 'available' ? '예약 가능' : state === 'reserved' ? '예약됨' : '예약불가';
+          return `<div class="room-hour ${state}" title="${label}">${String(hour).padStart(2,'0')}</div>`;
+        }).join('')
+      : '<div class="muted">설정된 운영시간이 없습니다.</div>';
+
+    return `
+      <div class="room-status-card ${expanded ? 'expanded' : ''}">
+        <button type="button" class="room-status-head" onclick="toggleRoomStatus(${room.id})">
+          <div class="room-status-left">
+            <div class="room-status-icon">▣</div>
+            <div>
+              <div class="room-status-name">${escapeHtml(room.name)}</div>
+              <div class="room-status-summary">${summary}</div>
+            </div>
+          </div>
+          <div class="room-status-chevron">${expanded ? '⌃' : '⌄'}</div>
+        </button>
+        <div class="room-status-body">
+          <div style="font-weight:800;margin-bottom:4px">시간대별 예약 현황</div>
+          <div class="room-status-hours">${hourHtml}</div>
+        </div>
+      </div>`;
+  }).join('') || '<div class="usage-empty">등록된 녹음실이 없습니다.</div>';
+}
+
+function monthKeyFromISO(iso) {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function reservationDurationHours(row) {
+  const start = new Date(row.start_at);
+  const end = new Date(row.end_at);
+  const hours = (end - start) / 3600000;
+  return Number.isFinite(hours) && hours > 0 ? hours : 0;
+}
+
+function memberForReservation(row) {
+  return authorizedUserRows.find(u =>
+    String(u.name || '') === String(row.nickname || '') &&
+    String(u.phone_last4 || '') === String(row.phone_last4 || '')
+  );
+}
+
+function formatHours(hours) {
+  if (Math.abs(hours - Math.round(hours)) < 0.001) return `${Math.round(hours)}시간`;
+  return `${hours.toFixed(1)}시간`;
+}
+
+function renderUsageStatus() {
+  const input = document.getElementById('usageMonth');
+  const list = document.getElementById('usageList');
+  const title = document.getElementById('usageTitle');
+  if (!input || !list || !title) return;
+
+  const monthKey = input.value;
+  if (!monthKey) return;
+
+  const [year, month] = monthKey.split('-').map(Number);
+  title.textContent = `${year}년 ${month}월 이용 순위 TOP 10`;
+
+  const totals = new Map();
+
+  reservationRows
+    .filter(r => r.status !== '취소됨' && monthKeyFromISO(r.start_at) === monthKey)
+    .forEach(r => {
+      const key = `${r.nickname || ''}\u0000${r.phone_last4 || ''}`;
+      const previous = totals.get(key) || {
+        name: r.nickname || '이름 없음',
+        phone_last4: r.phone_last4 || '',
+        hours: 0,
+        category_name: null,
+      };
+      previous.hours += reservationDurationHours(r);
+
+      const member = memberForReservation(r);
+      if (member?.category_name) previous.category_name = member.category_name;
+      totals.set(key, previous);
+    });
+
+  const ranking = Array.from(totals.values())
+    .sort((a,b) => b.hours - a.hours || String(a.name).localeCompare(String(b.name), 'ko'))
+    .slice(0, 10);
+
+  list.innerHTML = ranking.map((row, index) => {
+    const rank = index + 1;
+    return `
+      <div class="usage-card rank-${rank}">
+        <div class="usage-rank">${rank}</div>
+        <div>
+          <div class="usage-name">${escapeHtml(row.name)}</div>
+          <div class="usage-meta">
+            ${row.category_name
+              ? `<span class="category-pill">${escapeHtml(row.category_name)}</span>`
+              : '<span class="muted">미지정</span>'}
+            <span class="muted">총 ${formatHours(row.hours)}</span>
+          </div>
+        </div>
+        <div class="usage-hours">${formatHours(row.hours)}</div>
+      </div>`;
+  }).join('') || '<div class="usage-empty">선택한 달의 예약 이용내역이 없습니다.</div>';
 }
 
 function renderReservations() {
@@ -1263,8 +1627,8 @@ async function loadAll() {
     }
     renderBlockHourButtons();
 
-    const blocks = await api('/api/admin/blocks');
-    document.getElementById('blocks').innerHTML = blocks.slice(0,20).map(b=>`
+    blockRows = await api('/api/admin/blocks');
+    document.getElementById('blocks').innerHTML = blockRows.slice(0,20).map(b=>`
       <div class="room">
         <strong>${escapeHtml(roomMap[b.room_id]||('녹음실 #'+b.room_id))}</strong>
         <div class="muted">${fmt(b.start_at)} ~ ${fmt(b.end_at)} · ${escapeHtml(b.reason||'사유 없음')}</div>
@@ -1274,6 +1638,9 @@ async function loadAll() {
     reservationRows = await api('/api/admin/reservations?include_cancelled=true');
     reservationRoomMap = roomMap;
     renderReservations();
+    ensureStatusDefaults();
+    renderRoomStatus();
+    renderUsageStatus();
   } catch(e) {
     alert(e.message);
   }
@@ -1285,6 +1652,7 @@ function escapeHtml(v) {
 
 restoreAdminTab();
 ensureBlockDate();
+ensureStatusDefaults();
 renderBlockHourButtons();
 loadAll();
 setInterval(() => {
