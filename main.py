@@ -783,7 +783,7 @@ def register_academy(payload: AcademyCreateRequest, db: Session = Depends(get_db
 async def verify_academy_management_key(payload: AcademyRegistrationVerifyRequest):
     candidate = payload.license_key.strip()
     if "kyh" not in candidate.lower():
-        raise HTTPException(status_code=401, detail="kyh가 포함된 인증키만 사용할 수 있습니다.")
+        raise HTTPException(status_code=401, detail="사용할 수 없는 인증키입니다.")
 
     try:
         verified = await verify_license_key(candidate)
