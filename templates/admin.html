@@ -84,6 +84,41 @@
       margin:8px 0;
     }
 
+
+    .policy-box {
+      margin-top:10px;
+      padding:10px;
+      border-radius:14px;
+      background:color-mix(in srgb, CanvasText 5%, transparent);
+    }
+    .policy-grid {
+      display:grid;
+      grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+      gap:8px;
+      align-items:end;
+    }
+    .field label { display:block; margin-bottom:5px; }
+    .field input, .field select { width:100%; }
+    .inline-check { display:flex; gap:7px; align-items:center; min-height:42px; }
+    .inline-check input { width:auto; }
+    .modal-backdrop {
+      position:fixed; inset:0; z-index:20; display:none;
+      align-items:center; justify-content:center; padding:18px;
+      background:rgba(0,0,0,.48);
+    }
+    .modal-backdrop.active { display:flex; }
+    .modal-card {
+      width:min(520px,100%); max-height:90vh; overflow:auto;
+      border-radius:22px; padding:18px; background:Canvas; color:CanvasText;
+      border:1px solid color-mix(in srgb, CanvasText 18%, transparent);
+      box-shadow:0 18px 60px rgba(0,0,0,.28);
+    }
+    .category-pill {
+      display:inline-block; padding:3px 8px; border-radius:999px;
+      background:color-mix(in srgb, #30d158 16%, transparent);
+      font-size:12px; font-weight:700;
+    }
+
     @media (max-width:600px) {
       header { padding:14px 16px; }
       header h1 { font-size:17px; }
@@ -117,15 +152,22 @@
       <section class="card">
         <h2>녹음실 관리</h2>
         <div class="row">
-          <input id="newRoomName" placeholder="예: 녹음실 1" style="flex:1">
+          <input id="newRoomName" placeholder="예: 녹음실 1" style="flex:1;min-width:170px">
+          <label class="muted">오픈
+            <input id="newRoomOpenHour" type="number" min="0" max="23" value="0" style="width:82px">
+          </label>
+          <label class="muted">마감
+            <input id="newRoomCloseHour" type="number" min="1" max="24" value="24" style="width:82px">
+          </label>
           <button class="primary" onclick="createRoom()">추가</button>
         </div>
+        <div class="muted">시간은 1시간 단위입니다. 24는 다음 날 00:00을 뜻합니다.</div>
         <div id="rooms"></div>
       </section>
 
       <section class="card">
         <h2>예약불가 지정</h2>
-        <div class="row"><select id="blockRoom" style="flex:1"></select></div>
+        <div class="row"><select id="blockRoom" style="flex:1" onchange="clearBlockHours(); renderBlockHourButtons()"></select></div>
         <div class="row">
           <label for="blockDate" class="muted">날짜</label>
           <input id="blockDate" type="date" style="flex:1" onchange="clearBlockHours()">
@@ -149,24 +191,63 @@
   </section>
 
   <section id="tab-members" class="tab-panel">
-    <section class="card">
-      <h2>원생/강사 로그인 관리</h2>
-      <div class="row">
-        <input id="userName" class="grow" placeholder="이름">
-        <input id="userPhone4" inputmode="numeric" maxlength="4" placeholder="전화 끝 4자리" style="width:150px">
-        <button class="primary" onclick="createAuthorizedUser()">등록</button>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <input
-          id="authorizedUserSearch"
-          class="grow"
-          placeholder="이름 또는 전화번호 검색"
-          autocomplete="off"
-          oninput="renderAuthorizedUsers()"
-        >
-      </div>
-      <div id="authorizedUsers" class="compact-list"></div>
-    </section>
+    <div class="grid">
+      <section class="card">
+        <h2>회원 카테고리</h2>
+        <div class="row">
+          <input id="categoryName" class="grow" placeholder="예: 취미반, 입시반">
+          <button class="primary" onclick="createMemberCategory()">추가</button>
+        </div>
+        <div id="memberCategories"></div>
+      </section>
+
+      <section class="card">
+        <h2>원생/강사 로그인 관리</h2>
+        <div class="policy-grid">
+          <div class="field">
+            <label class="muted">이름</label>
+            <input id="userName" placeholder="이름">
+          </div>
+          <div class="field">
+            <label class="muted">전화 끝 4자리</label>
+            <input id="userPhone4" inputmode="numeric" maxlength="4" placeholder="0000">
+          </div>
+          <div class="field">
+            <label class="muted">카테고리</label>
+            <select id="userCategory"></select>
+          </div>
+          <div class="field">
+            <label class="muted">예약시간 제한</label>
+            <input id="userBookingLimit" type="number" min="1" max="24" placeholder="미지정 = 자유">
+          </div>
+          <label class="inline-check">
+            <input id="userAllowAdditional" type="checkbox">
+            추가예약 가능
+          </label>
+        </div>
+        <div class="row" style="justify-content:flex-end">
+          <button class="primary" onclick="createAuthorizedUser()">회원 등록</button>
+        </div>
+        <div class="muted">
+          시간제한 미지정은 자유 예약입니다. 추가예약 OFF는 현재 보유 중인 예약시간 합계가 제한시간을 넘지 않게 하며,
+          예약시간이 지나면 그만큼 다시 예약할 수 있습니다. ON은 각 예약이 제한시간 이내이면 여러 예약을 추가로 만들 수 있습니다.
+        </div>
+
+        <div class="row" style="margin-top:12px">
+          <select id="authorizedUserCategoryFilter" onchange="renderAuthorizedUsers()">
+            <option value="">전체 카테고리</option>
+          </select>
+          <input
+            id="authorizedUserSearch"
+            class="grow"
+            placeholder="이름 또는 전화번호 검색"
+            autocomplete="off"
+            oninput="renderAuthorizedUsers()"
+          >
+        </div>
+        <div id="authorizedUsers" class="compact-list" style="max-height:520px"></div>
+      </section>
+    </div>
   </section>
 
   <section id="tab-reservations" class="tab-panel">
@@ -201,6 +282,36 @@
     </section>
   </section>
 
+  <div id="reservationEditModal" class="modal-backdrop" onclick="if(event.target===this) closeReservationEditor()">
+    <div class="modal-card">
+      <h2>예약 수정</h2>
+      <input id="editReservationId" type="hidden">
+      <div class="field">
+        <label class="muted">녹음실</label>
+        <select id="editReservationRoom"></select>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label class="muted">예약 날짜</label>
+        <input id="editReservationDate" type="date">
+      </div>
+      <div class="policy-grid" style="margin-top:10px">
+        <div class="field">
+          <label class="muted">시작시간</label>
+          <select id="editReservationStartHour"></select>
+        </div>
+        <div class="field">
+          <label class="muted">종료시간</label>
+          <select id="editReservationEndHour"></select>
+        </div>
+      </div>
+      <div class="muted" style="margin-top:8px">종료시간 24시는 다음 날 00:00입니다.</div>
+      <div class="row" style="justify-content:flex-end;margin-top:16px">
+        <button onclick="closeReservationEditor()">취소</button>
+        <button class="primary" onclick="saveReservationEdit()">수정 저장</button>
+      </div>
+    </div>
+  </div>
+
   <section id="tab-password" class="tab-panel">
     <section class="card">
       <h2>관리자 비밀번호 변경</h2>
@@ -217,6 +328,7 @@ let rooms = [];
 let reservationRows = [];
 let reservationRoomMap = {};
 let authorizedUserRows = [];
+let memberCategories = [];
 let selectedBlockHours = new Set();
 
 function switchAdminTab(tabName) {
@@ -315,12 +427,21 @@ function renderBlockHourButtons() {
   const container = document.getElementById('blockHourButtons');
   if (!container) return;
 
+  const selectedRoomId = Number(document.getElementById('blockRoom')?.value || 0);
+  const selectedRoom = rooms.find(r => r.id === selectedRoomId);
+  const openHour = selectedRoom?.open_hour ?? 0;
+  const closeHour = selectedRoom?.close_hour ?? 24;
+
   container.innerHTML = Array.from({length:24}, (_, hour) => {
+    const outsideHours = hour < openHour || hour >= closeHour;
+    if (outsideHours) selectedBlockHours.delete(hour);
     const selected = selectedBlockHours.has(hour);
     return `<button
       type="button"
       class="hour-button ${selected ? 'selected' : ''}"
       onclick="toggleBlockHour(${hour})"
+      ${outsideHours ? 'disabled' : ''}
+      title="${outsideHours ? '운영시간 외' : ''}"
     >${String(hour).padStart(2, '0')}시</button>`;
   }).join('');
 }
@@ -335,7 +456,14 @@ function toggleBlockHour(hour) {
 }
 
 function selectAllBlockHours() {
-  selectedBlockHours = new Set(Array.from({length:24}, (_, hour) => hour));
+  const selectedRoomId = Number(document.getElementById('blockRoom')?.value || 0);
+  const selectedRoom = rooms.find(r => r.id === selectedRoomId);
+  const openHour = selectedRoom?.open_hour ?? 0;
+  const closeHour = selectedRoom?.close_hour ?? 24;
+  selectedBlockHours = new Set(
+    Array.from({length:24}, (_, hour) => hour)
+      .filter(hour => hour >= openHour && hour < closeHour)
+  );
   renderBlockHourButtons();
 }
 
@@ -397,18 +525,113 @@ function renderReservations() {
       <td>${escapeHtml(r.phone_last4)}</td>
       <td>
         ${r.status !== '취소됨'
-          ? `<button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>`
+          ? `${r.status !== '사용종료' ? `<button onclick='openReservationEditor(${JSON.stringify(r.id)})'>수정</button>` : ''}
+             <button class="danger" onclick='cancelReservation(${JSON.stringify(r.id)})'>취소</button>`
           : `<button class="danger" onclick='deleteCancelledReservation(${JSON.stringify(r.id)})'>삭제</button>`}
       </td>
     </tr>`).join('') || '<tr><td colspan="6" class="muted">해당 조건의 예약이 없습니다.</td></tr>';
 }
 
+function localDateParts(iso) {
+  const d = new Date(iso);
+  return {
+    dateKey: localDateKey(iso),
+    hour: d.getHours(),
+    minute: d.getMinutes(),
+  };
+}
+
+function reservationHourOptions(start, end, selected, include24=false) {
+  const options = [];
+  for (let hour=start; hour<=end; hour++) {
+    if (!include24 && hour === 24) continue;
+    options.push(`<option value="${hour}" ${hour===selected?'selected':''}>${String(hour).padStart(2,'0')}:00</option>`);
+  }
+  return options.join('');
+}
+
+function openReservationEditor(id) {
+  const row = reservationRows.find(r => r.id === id);
+  if (!row) return alert('예약 정보를 찾을 수 없습니다.');
+
+  const start = new Date(row.start_at);
+  const end = new Date(row.end_at);
+  let endHour = end.getHours();
+  if (localDateKey(row.end_at) !== localDateKey(row.start_at) && endHour === 0) {
+    endHour = 24;
+  }
+
+  document.getElementById('editReservationId').value = row.id;
+  document.getElementById('editReservationRoom').innerHTML =
+    rooms.map(r=>`<option value="${r.id}" ${r.id===row.room_id?'selected':''}>${escapeHtml(r.name)}</option>`).join('');
+  document.getElementById('editReservationDate').value = localDateKey(row.start_at);
+  document.getElementById('editReservationStartHour').innerHTML = reservationHourOptions(0,23,start.getHours(),false);
+  document.getElementById('editReservationEndHour').innerHTML = reservationHourOptions(1,24,endHour,true);
+  document.getElementById('reservationEditModal').classList.add('active');
+}
+
+function closeReservationEditor() {
+  document.getElementById('reservationEditModal').classList.remove('active');
+}
+
+function localHourISO(dateValue, hour) {
+  const [y,m,d] = dateValue.split('-').map(Number);
+  const dt = hour === 24
+    ? new Date(y, m-1, d+1, 0, 0, 0, 0)
+    : new Date(y, m-1, d, hour, 0, 0, 0);
+  return dt.toISOString();
+}
+
+async function saveReservationEdit() {
+  const id = document.getElementById('editReservationId').value;
+  const room_id = Number(document.getElementById('editReservationRoom').value);
+  const dateValue = document.getElementById('editReservationDate').value;
+  const startHour = Number(document.getElementById('editReservationStartHour').value);
+  const endHour = Number(document.getElementById('editReservationEndHour').value);
+
+  if (!id || !room_id || !dateValue) return alert('수정 정보를 확인해 주세요.');
+  if (endHour <= startHour) return alert('종료시간은 시작시간보다 뒤여야 합니다.');
+
+  try {
+    await api('/api/admin/reservations/'+id, {
+      method:'PATCH',
+      body:JSON.stringify({
+        room_id,
+        start_at: localHourISO(dateValue, startHour),
+        end_at: localHourISO(dateValue, endHour),
+      })
+    });
+    closeReservationEditor();
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
 async function createRoom() {
   const name = document.getElementById('newRoomName').value.trim();
-  if (!name) return;
+  const open_hour = Number(document.getElementById('newRoomOpenHour').value);
+  const close_hour = Number(document.getElementById('newRoomCloseHour').value);
+  if (!name) return alert('녹음실 이름을 입력해 주세요.');
+  if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간은 0~23 사이로 입력해 주세요.');
+  if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간은 1~24 사이로 입력해 주세요.');
+  if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
   try {
-    await api('/api/admin/rooms', {method:'POST', body:JSON.stringify({name})});
+    await api('/api/admin/rooms', {method:'POST', body:JSON.stringify({name, open_hour, close_hour})});
     document.getElementById('newRoomName').value='';
+    await loadAll();
+  } catch(e) { alert(e.message); }
+}
+
+async function saveRoomHours(id) {
+  const open_hour = Number(document.getElementById('roomOpen-'+id).value);
+  const close_hour = Number(document.getElementById('roomClose-'+id).value);
+  if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간은 0~23 사이로 입력해 주세요.');
+  if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간은 1~24 사이로 입력해 주세요.');
+  if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
+  try {
+    await api('/api/admin/rooms/'+id, {
+      method:'PATCH',
+      body:JSON.stringify({open_hour, close_hour})
+    });
     await loadAll();
   } catch(e) { alert(e.message); }
 }
@@ -506,15 +729,141 @@ async function deleteCancelledReservation(id) {
   } catch(e) { alert(e.message); }
 }
 
+async function createMemberCategory() {
+  const name = document.getElementById('categoryName').value.trim();
+  if (!name) return alert('카테고리 이름을 입력해 주세요.');
+  try {
+    await api('/api/admin/categories', {
+      method:'POST',
+      body:JSON.stringify({name})
+    });
+    document.getElementById('categoryName').value='';
+    await loadMemberCategories();
+    await loadAuthorizedUsers();
+  } catch(e) { alert(e.message); }
+}
+
+async function renameMemberCategory(id, current) {
+  const name = prompt('새 카테고리 이름', current);
+  if (!name || name.trim() === current) return;
+  try {
+    await api('/api/admin/categories/'+id, {
+      method:'PATCH',
+      body:JSON.stringify({name:name.trim()})
+    });
+    await loadMemberCategories();
+    await loadAuthorizedUsers();
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteMemberCategory(id, name) {
+  if (!confirm(name+' 카테고리를 삭제할까요?\n해당 회원은 미지정으로 변경됩니다.')) return;
+  try {
+    await api('/api/admin/categories/'+id, {method:'DELETE'});
+    await loadMemberCategories();
+    await loadAuthorizedUsers();
+  } catch(e) { alert(e.message); }
+}
+
+function categoryOptions(selectedId=null, includeAll=false) {
+  const first = includeAll
+    ? '<option value="">전체 카테고리</option><option value="__none__">미지정</option>'
+    : '<option value="">미지정</option>';
+  return first + memberCategories.map(c =>
+    `<option value="${c.id}" ${Number(selectedId)===c.id?'selected':''}>${escapeHtml(c.name)}</option>`
+  ).join('');
+}
+
+function renderMemberCategories() {
+  document.getElementById('memberCategories').innerHTML = memberCategories.map(c=>`
+    <div class="room">
+      <div class="row" style="justify-content:space-between">
+        <strong>${escapeHtml(c.name)}</strong>
+        <div class="row">
+          <button onclick='renameMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>수정</button>
+          <button class="danger" onclick='deleteMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>삭제</button>
+        </div>
+      </div>
+    </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 카테고리가 없습니다.</div>';
+
+  const createSelect = document.getElementById('userCategory');
+  if (createSelect) createSelect.innerHTML = categoryOptions(null, false);
+
+  const filter = document.getElementById('authorizedUserCategoryFilter');
+  if (filter) {
+    const current = filter.value;
+    filter.innerHTML = categoryOptions(null, true);
+    filter.value = current;
+  }
+}
+
+async function loadMemberCategories() {
+  memberCategories = await api('/api/admin/categories');
+  renderMemberCategories();
+}
+
+function readBookingLimit(value) {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  const number = Number(text);
+  if (!Number.isInteger(number) || number < 1 || number > 24) {
+    throw new Error('예약시간 제한은 1~24시간으로 입력하거나 비워 두세요.');
+  }
+  return number;
+}
+
 async function createAuthorizedUser() {
   const name = document.getElementById('userName').value.trim();
   const phone_last4 = document.getElementById('userPhone4').value.trim();
+  const categoryValue = document.getElementById('userCategory').value;
+  let booking_limit_hours;
+  try {
+    booking_limit_hours = readBookingLimit(document.getElementById('userBookingLimit').value);
+  } catch(e) { return alert(e.message); }
+  const allow_additional_booking = document.getElementById('userAllowAdditional').checked;
+
   if (!name) return alert('이름을 입력해 주세요.');
   if (!/^\d{4}$/.test(phone_last4)) return alert('전화번호 끝 4자리는 숫자 4자리로 입력해 주세요.');
+
   try {
-    await api('/api/admin/users', {method:'POST', body:JSON.stringify({name, phone_last4})});
+    await api('/api/admin/users', {
+      method:'POST',
+      body:JSON.stringify({
+        name,
+        phone_last4,
+        category_id: categoryValue ? Number(categoryValue) : null,
+        booking_limit_hours,
+        allow_additional_booking,
+      })
+    });
     document.getElementById('userName').value='';
     document.getElementById('userPhone4').value='';
+    document.getElementById('userBookingLimit').value='';
+    document.getElementById('userAllowAdditional').checked=false;
+    await loadAuthorizedUsers();
+  } catch(e) { alert(e.message); }
+}
+
+async function updateAuthorizedUser(id) {
+  const row = authorizedUserRows.find(u => u.id === id);
+  if (!row) return alert('회원 정보를 찾을 수 없습니다.');
+
+  const categoryValue = document.getElementById('userCategory-'+id).value;
+  let booking_limit_hours;
+  try {
+    booking_limit_hours = readBookingLimit(document.getElementById('userLimit-'+id).value);
+  } catch(e) { return alert(e.message); }
+  const allow_additional_booking = document.getElementById('userAdditional-'+id).checked;
+
+  try {
+    await api('/api/admin/users/'+id, {
+      method:'PATCH',
+      body:JSON.stringify({
+        category_id: categoryValue ? Number(categoryValue) : null,
+        booking_limit_hours,
+        allow_additional_booking,
+      })
+    });
     await loadAuthorizedUsers();
   } catch(e) { alert(e.message); }
 }
@@ -530,23 +879,54 @@ async function deleteAuthorizedUser(id, name) {
 function renderAuthorizedUsers() {
   const searchInput = document.getElementById('authorizedUserSearch');
   const keyword = (searchInput?.value || '').trim().toLocaleLowerCase('ko-KR');
+  const categoryFilter = document.getElementById('authorizedUserCategoryFilter')?.value || '';
 
-  const users = keyword
-    ? authorizedUserRows.filter(u =>
-        String(u.name || '').toLocaleLowerCase('ko-KR').includes(keyword) ||
-        String(u.phone_last4 || '').includes(keyword)
-      )
-    : authorizedUserRows;
+  let users = authorizedUserRows;
+  if (categoryFilter === '__none__') {
+    users = users.filter(u => !u.category_id);
+  } else if (categoryFilter) {
+    users = users.filter(u => String(u.category_id || '') === categoryFilter);
+  }
+  if (keyword) {
+    users = users.filter(u =>
+      String(u.name || '').toLocaleLowerCase('ko-KR').includes(keyword) ||
+      String(u.phone_last4 || '').includes(keyword)
+    );
+  }
 
-  const emptyMessage = keyword
+  const emptyMessage = (keyword || categoryFilter)
     ? '검색 결과가 없습니다.'
     : '등록된 원생/강사가 없습니다.';
 
   document.getElementById('authorizedUsers').innerHTML = users.map(u=>`
     <div class="room">
       <div class="row" style="justify-content:space-between">
-        <div><strong>${escapeHtml(u.name)}</strong><div class="muted">전화 끝 4자리 ${escapeHtml(u.phone_last4)}</div></div>
+        <div>
+          <strong>${escapeHtml(u.name)}</strong>
+          ${u.category_name ? `<span class="category-pill">${escapeHtml(u.category_name)}</span>` : ''}
+          <div class="muted">전화 끝 4자리 ${escapeHtml(u.phone_last4)}</div>
+        </div>
         <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
+      </div>
+      <div class="policy-box">
+        <div class="policy-grid">
+          <div class="field">
+            <label class="muted">카테고리</label>
+            <select id="userCategory-${u.id}">${categoryOptions(u.category_id, false)}</select>
+          </div>
+          <div class="field">
+            <label class="muted">예약시간 제한</label>
+            <input id="userLimit-${u.id}" type="number" min="1" max="24"
+              value="${u.booking_limit_hours ?? ''}" placeholder="미지정 = 자유">
+          </div>
+          <label class="inline-check">
+            <input id="userAdditional-${u.id}" type="checkbox" ${u.allow_additional_booking ? 'checked' : ''}>
+            추가예약 가능
+          </label>
+          <div>
+            <button class="primary" onclick="updateAuthorizedUser(${u.id})">설정 저장</button>
+          </div>
+        </div>
       </div>
     </div>`).join('') || `<div class="muted" style="margin-top:12px">${emptyMessage}</div>`;
 }
@@ -581,26 +961,48 @@ async function changeAdminPassword() {
 
 async function loadAll() {
   try {
+    await loadMemberCategories();
     await loadAuthorizedUsers();
+
     rooms = await api('/api/admin/rooms');
     const roomMap = Object.fromEntries(rooms.map(r=>[r.id,r.name]));
+
     document.getElementById('rooms').innerHTML = rooms.map(r=>`
       <div class="room">
         <div class="row" style="justify-content:space-between">
           <div>
             <strong>${escapeHtml(r.name)}</strong>
-            <div class="muted">${r.is_paused ? '일시 사용중지 · '+escapeHtml(r.pause_reason||'사유 없음') : '예약 가능'}</div>
+            <div class="muted">
+              ${r.is_paused ? '일시 사용중지 · '+escapeHtml(r.pause_reason||'사유 없음') : '예약 가능'}
+              · 운영 ${String(r.open_hour ?? 0).padStart(2,'0')}:00 ~ ${String(r.close_hour ?? 24).padStart(2,'0')}:00
+            </div>
           </div>
           <div class="row">
-            <button onclick='renameRoom(${r.id}, ${JSON.stringify(r.name)})'>수정</button>
+            <button onclick='renameRoom(${r.id}, ${JSON.stringify(r.name)})'>이름수정</button>
             <button onclick='togglePause(${JSON.stringify(r)})'>${r.is_paused?'사용재개':'일시중지'}</button>
             <button class="danger" onclick='deleteRoom(${r.id}, ${JSON.stringify(r.name)})'>삭제</button>
           </div>
         </div>
+        <div class="policy-box">
+          <div class="row">
+            <label class="muted">오픈
+              <input id="roomOpen-${r.id}" type="number" min="0" max="23" value="${r.open_hour ?? 0}" style="width:82px">
+            </label>
+            <label class="muted">마감(오프)
+              <input id="roomClose-${r.id}" type="number" min="1" max="24" value="${r.close_hour ?? 24}" style="width:82px">
+            </label>
+            <button class="primary" onclick="saveRoomHours(${r.id})">운영시간 저장</button>
+          </div>
+        </div>
       </div>`).join('') || '<div class="muted">등록된 녹음실이 없습니다.</div>';
 
-    document.getElementById('blockRoom').innerHTML =
-      rooms.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+    const blockRoom = document.getElementById('blockRoom');
+    const previousBlockRoom = blockRoom.value;
+    blockRoom.innerHTML = rooms.map(r=>`<option value="${r.id}">${escapeHtml(r.name)}</option>`).join('');
+    if (previousBlockRoom && rooms.some(r=>String(r.id)===previousBlockRoom)) {
+      blockRoom.value = previousBlockRoom;
+    }
+    renderBlockHourButtons();
 
     const blocks = await api('/api/admin/blocks');
     document.getElementById('blocks').innerHTML = blocks.slice(0,20).map(b=>`
@@ -626,7 +1028,11 @@ restoreAdminTab();
 ensureBlockDate();
 renderBlockHourButtons();
 loadAll();
-setInterval(loadAll, 5000);
+setInterval(() => {
+  if (document.getElementById('reservationEditModal')?.classList.contains('active')) return;
+  if (document.activeElement && ['INPUT','SELECT','TEXTAREA'].includes(document.activeElement.tagName)) return;
+  loadAll();
+}, 5000);
 </script>
 </body>
 </html>

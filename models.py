@@ -84,3 +84,46 @@ class AdminCredential(Base):
     academy_id: Mapped[int] = mapped_column(ForeignKey("academies.id", ondelete="CASCADE"), primary_key=True)
     password_hash: Mapped[str] = mapped_column(String(300), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+class MemberCategory(Base):
+    __tablename__ = "academy_member_categories"
+    __table_args__ = (
+        UniqueConstraint("academy_id", "name", name="uq_academy_member_category_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    academy_id: Mapped[int] = mapped_column(ForeignKey("academies.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(60), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class MemberPolicy(Base):
+    __tablename__ = "academy_member_policies"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("academy_authorized_users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    academy_id: Mapped[int] = mapped_column(ForeignKey("academies.id", ondelete="CASCADE"), nullable=False, index=True)
+    category_id: Mapped[int | None] = mapped_column(
+        ForeignKey("academy_member_categories.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    booking_limit_hours: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    allow_additional_booking: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
+class RoomSchedule(Base):
+    __tablename__ = "academy_room_schedules"
+
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("academy_rooms.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    academy_id: Mapped[int] = mapped_column(ForeignKey("academies.id", ondelete="CASCADE"), nullable=False, index=True)
+    open_hour: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    close_hour: Mapped[int] = mapped_column(Integer, default=24, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+

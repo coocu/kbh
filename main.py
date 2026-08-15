@@ -1,8 +1,9 @@
 import hmac
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 from fastapi import Depends, FastAPI, Form, HTTPException, Query, Request
@@ -14,18 +15,26 @@ from sqlalchemy.orm import Session
 
 from auth_adapter import AuthNotConfigured, verify_license_key
 from db import Base, SessionLocal, engine
-from models import Academy, AdminCredential, AuthorizedUser, Reservation, Room, UnavailableBlock
+from models import (
+    Academy, AdminCredential, AuthorizedUser, MemberCategory, MemberPolicy,
+    Reservation, Room, RoomSchedule, UnavailableBlock,
+)
 from schemas import (
     AcademyCreateRequest,
     AcademyDeleteRequest,
     AcademyManagementRequest,
     AcademyRegistrationVerifyRequest,
     AdminLoginRequest,
+    AdminReservationUpdate,
     AuthorizedUserCreate,
+    AuthorizedUserUpdate,
     BlockCreate,
     CancelRequest,
+    MemberCategoryCreate,
+    MemberCategoryUpdate,
     PasswordChangeRequest,
     ReservationCreate,
+    ReservationMoveRequest,
     RoomCreate,
     RoomUpdate,
     UserLoginRequest,
@@ -50,6 +59,9 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 LEGACY_ACADEMY_NAME = os.getenv("ACADEMY_NAME", "킴스보컬미디학원").strip() or "킴스보컬미디학원"
 LEGACY_RECOVERY_NAME = os.getenv("ADMIN_RECOVERY_NAME", "김병현").strip() or "김병현"
 LEGACY_RECOVERY_PHONE_LAST4 = os.getenv("ADMIN_RECOVERY_PHONE_LAST4", "0667").strip() or "0667"
+
+BOOKING_TIMEZONE_NAME = os.getenv("BOOKING_TIMEZONE", "Asia/Seoul").strip() or "Asia/Seoul"
+BOOKING_TIMEZONE = ZoneInfo(BOOKING_TIMEZONE_NAME)
 
 
 def now_utc() -> datetime:
@@ -112,12 +124,21 @@ def admin_reservation(r: Reservation) -> dict:
     }
 
 
-def room_dict(room: Room) -> dict:
+def _schedule_values(schedule: RoomSchedule | None) -> tuple[int, int]:
+    if schedule is None:
+        return 0, 24
+    return schedule.open_hour, schedule.close_hour
+
+
+def room_dict(room: Room, schedule: RoomSchedule | None = None) -> dict:
+    open_hour, close_hour = _schedule_values(schedule)
     return {
         "id": room.id,
         "name": room.name,
         "is_paused": room.is_paused,
         "pause_reason": room.pause_reason,
+        "open_hour": open_hour,
+        "close_hour": close_hour,
     }
 
 
@@ -125,13 +146,233 @@ def academy_dict(academy: Academy) -> dict:
     return {"id": academy.id, "name": academy.name}
 
 
-def authorized_user_dict(row: AuthorizedUser) -> dict:
+def category_dict(row: MemberCategory) -> dict:
+    return {
+        "id": row.id,
+        "name": row.name,
+        "created_at": row.created_at,
+    }
+
+
+def authorized_user_dict(
+    row: AuthorizedUser,
+    policy: MemberPolicy | None = None,
+    category: MemberCategory | None = None,
+) -> dict:
     return {
         "id": row.id,
         "name": row.name,
         "phone_last4": row.phone_last4,
+        "category_id": policy.category_id if policy else None,
+        "category_name": category.name if category else None,
+        "booking_limit_hours": policy.booking_limit_hours if policy else None,
+        "allow_additional_booking": bool(policy.allow_additional_booking) if policy else False,
         "created_at": row.created_at,
     }
+
+
+def _get_room_schedule(db: Session, room: Room, create: bool = False) -> RoomSchedule | None:
+    schedule = db.get(RoomSchedule, room.id)
+    if schedule is None and create:
+        schedule = RoomSchedule(
+            room_id=room.id,
+            academy_id=room.academy_id,
+            open_hour=0,
+            close_hour=24,
+        )
+        db.add(schedule)
+        db.flush()
+    return schedule
+
+
+def _get_member_policy(db: Session, user: AuthorizedUser, create: bool = False) -> MemberPolicy | None:
+    policy = db.get(MemberPolicy, user.id)
+    if policy is None and create:
+        policy = MemberPolicy(
+            user_id=user.id,
+            academy_id=user.academy_id,
+            category_id=None,
+            booking_limit_hours=None,
+            allow_additional_booking=False,
+        )
+        db.add(policy)
+        db.flush()
+    return policy
+
+
+def _validate_category_for_academy(db: Session, academy_id: int, category_id: int | None) -> MemberCategory | None:
+    if category_id is None:
+        return None
+    category = db.scalar(
+        select(MemberCategory).where(
+            MemberCategory.id == category_id,
+            MemberCategory.academy_id == academy_id,
+        )
+    )
+    if category is None:
+        raise HTTPException(status_code=404, detail="회원 카테고리를 찾을 수 없습니다.")
+    return category
+
+
+def _local_day_bounds(day: date) -> tuple[datetime, datetime]:
+    start = datetime.combine(day, time.min, tzinfo=BOOKING_TIMEZONE)
+    return start, start + timedelta(days=1)
+
+
+def _room_open_bounds(day: date, open_hour: int, close_hour: int) -> tuple[datetime, datetime]:
+    day_start, next_day = _local_day_bounds(day)
+    open_at = day_start + timedelta(hours=open_hour)
+    close_at = next_day if close_hour == 24 else day_start + timedelta(hours=close_hour)
+    return open_at, close_at
+
+
+def _is_within_room_schedule(
+    start_at: datetime,
+    end_at: datetime,
+    schedule: RoomSchedule | None,
+) -> bool:
+    open_hour, close_hour = _schedule_values(schedule)
+    local_start = _aware_utc(start_at).astimezone(BOOKING_TIMEZONE)
+    local_end = _aware_utc(end_at).astimezone(BOOKING_TIMEZONE)
+    open_at, close_at = _room_open_bounds(local_start.date(), open_hour, close_hour)
+    return local_start >= open_at and local_end <= close_at and local_end > local_start
+
+
+def _operating_hours_error(schedule: RoomSchedule | None) -> str:
+    open_hour, close_hour = _schedule_values(schedule)
+    return f"이 녹음실의 운영시간은 {open_hour:02d}:00 ~ {close_hour:02d}:00입니다."
+
+
+def _schedule_blocks_for_range(
+    room: Room,
+    schedule: RoomSchedule | None,
+    from_at: datetime,
+    to_at: datetime,
+) -> list[dict]:
+    open_hour, close_hour = _schedule_values(schedule)
+    if open_hour == 0 and close_hour == 24:
+        return []
+
+    local_from = _aware_utc(from_at).astimezone(BOOKING_TIMEZONE)
+    local_to = _aware_utc(to_at).astimezone(BOOKING_TIMEZONE)
+    day = local_from.date()
+    last_day = local_to.date()
+    rows: list[dict] = []
+
+    while day <= last_day:
+        day_start, next_day = _local_day_bounds(day)
+        open_at, close_at = _room_open_bounds(day, open_hour, close_hour)
+
+        if open_at > day_start:
+            start = max(day_start, local_from)
+            end = min(open_at, local_to)
+            if end > start:
+                rows.append({
+                    "id": f"schedule-{room.id}-{day.isoformat()}-before",
+                    "room_id": room.id,
+                    "start_at": start.astimezone(timezone.utc),
+                    "end_at": end.astimezone(timezone.utc),
+                    "reason": "운영시간 외",
+                    "system_generated": True,
+                })
+
+        if close_at < next_day:
+            start = max(close_at, local_from)
+            end = min(next_day, local_to)
+            if end > start:
+                rows.append({
+                    "id": f"schedule-{room.id}-{day.isoformat()}-after",
+                    "room_id": room.id,
+                    "start_at": start.astimezone(timezone.utc),
+                    "end_at": end.astimezone(timezone.utc),
+                    "reason": "운영시간 외",
+                    "system_generated": True,
+                })
+        day += timedelta(days=1)
+
+    return rows
+
+
+def _member_remaining_reserved_hours(
+    db: Session,
+    user: AuthorizedUser,
+    now: datetime,
+    exclude_reservation_id: str | None = None,
+) -> float:
+    stmt = select(Reservation).where(
+        Reservation.academy_id == user.academy_id,
+        Reservation.nickname == user.name,
+        Reservation.phone_last4 == user.phone_last4,
+        Reservation.cancelled_at.is_(None),
+        Reservation.end_at > now,
+    )
+    if exclude_reservation_id is not None:
+        stmt = stmt.where(Reservation.id != exclude_reservation_id)
+
+    total_seconds = 0.0
+    for reservation in db.scalars(stmt).all():
+        start_at = max(_aware_utc(reservation.start_at), now)
+        end_at = _aware_utc(reservation.end_at)
+        if end_at > start_at:
+            total_seconds += (end_at - start_at).total_seconds()
+    return total_seconds / 3600.0
+
+
+def _enforce_member_booking_policy(
+    db: Session,
+    user: AuthorizedUser,
+    start_at: datetime,
+    end_at: datetime,
+    exclude_reservation_id: str | None = None,
+) -> None:
+    policy = _get_member_policy(db, user, create=False)
+    if policy is None or policy.booking_limit_hours is None:
+        return
+
+    limit = float(policy.booking_limit_hours)
+    duration = (_aware_utc(end_at) - _aware_utc(start_at)).total_seconds() / 3600.0
+    if duration > limit + 1e-9:
+        raise HTTPException(
+            status_code=409,
+            detail=f"회원 예약시간 제한은 1회 최대 {policy.booking_limit_hours}시간입니다.",
+        )
+
+    if policy.allow_additional_booking:
+        return
+
+    now = now_utc()
+    reserved = _member_remaining_reserved_hours(
+        db,
+        user,
+        now,
+        exclude_reservation_id=exclude_reservation_id,
+    )
+    if reserved + duration > limit + 1e-9:
+        available = max(0.0, limit - reserved)
+        if available <= 1e-9:
+            raise HTTPException(
+                status_code=409,
+                detail=f"현재 예약 가능한 {policy.booking_limit_hours}시간을 모두 사용 중입니다. 기존 예약시간이 지나면 다시 예약할 수 있습니다.",
+            )
+        raise HTTPException(
+            status_code=409,
+            detail=f"현재 추가로 예약 가능한 시간은 최대 {available:g}시간입니다. 기존 예약시간이 지나면 예약 가능 시간이 다시 늘어납니다.",
+        )
+
+
+def _find_logged_in_user_for_update(db: Session, auth: dict) -> AuthorizedUser:
+    row = db.scalar(
+        select(AuthorizedUser)
+        .where(
+            AuthorizedUser.academy_id == auth["academy_id"],
+            AuthorizedUser.name == auth.get("name"),
+            AuthorizedUser.phone_last4 == auth.get("phone_last4"),
+        )
+        .with_for_update()
+    )
+    if row is None:
+        raise HTTPException(status_code=401, detail="등록된 회원 정보를 다시 확인해 주세요.")
+    return row
 
 
 def get_db():
@@ -419,8 +660,11 @@ def delete_academy(payload: AcademyDeleteRequest, db: Session = Depends(get_db))
     # DB의 cascade 설정 여부에 기대지 않아 예약/녹음실 FK 충돌을 피한다.
     db.execute(delete(UnavailableBlock).where(UnavailableBlock.academy_id == academy.id))
     db.execute(delete(Reservation).where(Reservation.academy_id == academy.id))
+    db.execute(delete(MemberPolicy).where(MemberPolicy.academy_id == academy.id))
+    db.execute(delete(MemberCategory).where(MemberCategory.academy_id == academy.id))
     db.execute(delete(AuthorizedUser).where(AuthorizedUser.academy_id == academy.id))
     db.execute(delete(AdminCredential).where(AdminCredential.academy_id == academy.id))
+    db.execute(delete(RoomSchedule).where(RoomSchedule.academy_id == academy.id))
     db.execute(delete(Room).where(Room.academy_id == academy.id))
     db.delete(academy)
 
@@ -452,6 +696,9 @@ def user_app_login(payload: UserLoginRequest, db: Session = Depends(get_db)):
     if row is None:
         raise HTTPException(status_code=401, detail="선택한 학원에 등록된 이름과 전화번호 끝 4자리를 확인해 주세요.")
 
+    policy = _get_member_policy(db, row, create=False)
+    category = _validate_category_for_academy(db, academy.id, policy.category_id) if policy and policy.category_id else None
+
     return {
         "academy_id": academy.id,
         "academy_name": academy.name,
@@ -460,6 +707,10 @@ def user_app_login(payload: UserLoginRequest, db: Session = Depends(get_db)):
         "role": "user",
         "name": row.name,
         "phone_last4": row.phone_last4,
+        "category_id": policy.category_id if policy else None,
+        "category_name": category.name if category else None,
+        "booking_limit_hours": policy.booking_limit_hours if policy else None,
+        "allow_additional_booking": bool(policy.allow_additional_booking) if policy else False,
     }
 
 
@@ -496,6 +747,27 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
             Room.is_deleted.is_(False),
         ).order_by(Room.name.asc())
     ).all()
+    schedules = {
+        row.room_id: row
+        for row in db.scalars(
+            select(RoomSchedule).where(RoomSchedule.academy_id == academy_id)
+        ).all()
+    }
+
+    user = db.scalar(
+        select(AuthorizedUser).where(
+            AuthorizedUser.academy_id == academy_id,
+            AuthorizedUser.name == auth.get("name"),
+            AuthorizedUser.phone_last4 == auth.get("phone_last4"),
+        )
+    )
+    policy = _get_member_policy(db, user, create=False) if user else None
+    category = (
+        _validate_category_for_academy(db, academy_id, policy.category_id)
+        if policy and policy.category_id
+        else None
+    )
+
     return {
         "academy_id": academy.id,
         "academy_name": academy.name,
@@ -503,7 +775,11 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
         "booking_limit_months": 3,
         "user_name": auth.get("name"),
         "phone_last4": auth.get("phone_last4"),
-        "rooms": [room_dict(r) for r in rooms],
+        "category_id": policy.category_id if policy else None,
+        "category_name": category.name if category else None,
+        "booking_limit_hours": policy.booking_limit_hours if policy else None,
+        "allow_additional_booking": bool(policy.allow_additional_booking) if policy else False,
+        "rooms": [room_dict(r, schedules.get(r.id)) for r in rooms],
     }
 
 
@@ -517,7 +793,13 @@ def list_rooms(request: Request, db: Session = Depends(get_db)):
             Room.is_deleted.is_(False),
         ).order_by(Room.name.asc())
     ).all()
-    return [room_dict(r) for r in rooms]
+    schedules = {
+        row.room_id: row
+        for row in db.scalars(
+            select(RoomSchedule).where(RoomSchedule.academy_id == academy_id)
+        ).all()
+    }
+    return [room_dict(r, schedules.get(r.id)) for r in rooms]
 
 
 @app.get("/api/v1/reservations")
@@ -547,7 +829,22 @@ def list_public_reservations(
         stmt = stmt.where(Reservation.start_at < normalize_utc(to_at))
 
     rows = db.scalars(stmt.order_by(Reservation.start_at.asc())).all()
-    return [public_reservation(r) for r in rows]
+    room_names = {
+        row.id: row.name
+        for row in db.scalars(
+            select(Room).where(Room.academy_id == academy_id)
+        ).all()
+    }
+    result = []
+    for reservation in rows:
+        item = public_reservation(reservation)
+        item["room_name"] = room_names.get(reservation.room_id)
+        item["is_mine"] = (
+            reservation.nickname == auth.get("name")
+            and reservation.phone_last4 == auth.get("phone_last4")
+        )
+        result.append(item)
+    return result
 
 
 @app.get("/api/v1/blocks")
@@ -574,16 +871,51 @@ def list_public_blocks(
         stmt = stmt.where(UnavailableBlock.start_at < normalize_utc(to_at))
 
     rows = db.scalars(stmt.order_by(UnavailableBlock.start_at.asc())).all()
-    return [
+    result = [
         {
             "id": b.id,
             "room_id": b.room_id,
             "start_at": b.start_at,
             "end_at": b.end_at,
             "reason": b.reason,
+            "system_generated": False,
         }
         for b in rows
     ]
+
+    # 기존 iOS 앱은 예약불가 목록을 이용해 시간 버튼을 비활성화하므로,
+    # 오픈/마감시간 바깥 구간도 서버가 예약불가 항목처럼 동적으로 내려준다.
+    local_now = now_utc().astimezone(BOOKING_TIMEZONE)
+    synthetic_from = from_at or datetime.combine(local_now.date(), time.min, tzinfo=BOOKING_TIMEZONE)
+    synthetic_to = to_at or (synthetic_from + relativedelta(months=3) + timedelta(days=1))
+    if synthetic_from.tzinfo is None or synthetic_to.tzinfo is None:
+        raise HTTPException(status_code=422, detail="예약불가 조회 시간에는 시간대가 포함되어야 합니다.")
+
+    room_stmt = select(Room).where(
+        Room.academy_id == academy_id,
+        Room.is_deleted.is_(False),
+    )
+    if room_id is not None:
+        room_stmt = room_stmt.where(Room.id == room_id)
+    room_rows = db.scalars(room_stmt).all()
+    schedule_map = {
+        row.room_id: row
+        for row in db.scalars(
+            select(RoomSchedule).where(RoomSchedule.academy_id == academy_id)
+        ).all()
+    }
+    for room in room_rows:
+        result.extend(
+            _schedule_blocks_for_range(
+                room,
+                schedule_map.get(room.id),
+                synthetic_from,
+                synthetic_to,
+            )
+        )
+
+    result.sort(key=lambda item: _aware_utc(item["start_at"]))
+    return result
 
 
 @app.post("/api/v1/reservations", status_code=201)
@@ -606,6 +938,9 @@ def create_reservation(
         raise HTTPException(status_code=409, detail="예약은 현재 시점부터 최대 3개월까지만 가능합니다.")
 
     try:
+        user = _find_logged_in_user_for_update(db, auth)
+        _enforce_member_booking_policy(db, user, start, end)
+
         room = db.scalar(
             select(Room)
             .where(
@@ -622,6 +957,10 @@ def create_reservation(
                 status_code=409,
                 detail=room.pause_reason or "현재 이 녹음실은 일시 사용중지 상태입니다.",
             )
+
+        schedule = _get_room_schedule(db, room, create=False)
+        if not _is_within_room_schedule(start, end, schedule):
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
 
         conflict_reservation = db.scalar(
             select(Reservation).where(
@@ -649,8 +988,8 @@ def create_reservation(
         reservation = Reservation(
             academy_id=academy_id,
             room_id=room.id,
-            nickname=auth.get("name") or payload.nickname.strip(),
-            phone_last4=auth.get("phone_last4") or payload.phone_last4,
+            nickname=user.name,
+            phone_last4=user.phone_last4,
             start_at=start,
             end_at=end,
         )
@@ -662,6 +1001,120 @@ def create_reservation(
         db.rollback()
         raise
     except Exception:
+        db.rollback()
+        raise
+
+
+@app.get("/api/v1/my-reservations")
+def list_my_reservations(
+    request: Request,
+    include_cancelled: bool = False,
+    db: Session = Depends(get_db),
+):
+    auth = require_app_token(request)
+    academy_id = auth["academy_id"]
+    stmt = select(Reservation).where(
+        Reservation.academy_id == academy_id,
+        Reservation.nickname == auth.get("name"),
+        Reservation.phone_last4 == auth.get("phone_last4"),
+    )
+    if not include_cancelled:
+        stmt = stmt.where(Reservation.cancelled_at.is_(None))
+
+    rows = db.scalars(stmt.order_by(Reservation.start_at.desc())).all()
+    room_names = {
+        room.id: room.name
+        for room in db.scalars(select(Room).where(Room.academy_id == academy_id)).all()
+    }
+    result = []
+    for row in rows:
+        item = public_reservation(row)
+        item["room_name"] = room_names.get(row.room_id)
+        item["can_move"] = row.cancelled_at is None and _aware_utc(row.start_at) > now_utc()
+        result.append(item)
+    return result
+
+
+@app.patch("/api/v1/reservations/{reservation_id}/move")
+def move_my_reservation(
+    reservation_id: str,
+    payload: ReservationMoveRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    auth = require_app_token(request)
+    academy_id = auth["academy_id"]
+
+    try:
+        reservation = db.scalar(
+            select(Reservation)
+            .where(
+                Reservation.id == reservation_id,
+                Reservation.academy_id == academy_id,
+                Reservation.nickname == auth.get("name"),
+                Reservation.phone_last4 == auth.get("phone_last4"),
+            )
+            .with_for_update()
+        )
+        if reservation is None:
+            raise HTTPException(status_code=404, detail="본인 예약을 찾을 수 없습니다.")
+        if reservation.cancelled_at is not None:
+            raise HTTPException(status_code=409, detail="취소된 예약은 이동할 수 없습니다.")
+        if _aware_utc(reservation.start_at) <= now_utc():
+            raise HTTPException(status_code=409, detail="예약 시작 전인 예약만 다른 녹음실로 이동할 수 있습니다.")
+
+        if payload.room_id == reservation.room_id:
+            return public_reservation(reservation)
+
+        room = db.scalar(
+            select(Room)
+            .where(
+                Room.id == payload.room_id,
+                Room.academy_id == academy_id,
+                Room.is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        if room is None:
+            raise HTTPException(status_code=404, detail="이동할 녹음실을 찾을 수 없습니다.")
+        if room.is_paused:
+            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 녹음실은 현재 사용중지 상태입니다.")
+
+        schedule = _get_room_schedule(db, room, create=False)
+        if not _is_within_room_schedule(reservation.start_at, reservation.end_at, schedule):
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+
+        conflict_reservation = db.scalar(
+            select(Reservation).where(
+                Reservation.academy_id == academy_id,
+                Reservation.room_id == room.id,
+                Reservation.id != reservation.id,
+                Reservation.cancelled_at.is_(None),
+                Reservation.start_at < reservation.end_at,
+                Reservation.end_at > reservation.start_at,
+            )
+        )
+        if conflict_reservation:
+            raise HTTPException(status_code=409, detail="이동하려는 녹음실에 같은 시간의 예약이 있습니다.")
+
+        conflict_block = db.scalar(
+            select(UnavailableBlock).where(
+                UnavailableBlock.academy_id == academy_id,
+                UnavailableBlock.room_id == room.id,
+                UnavailableBlock.start_at < reservation.end_at,
+                UnavailableBlock.end_at > reservation.start_at,
+            )
+        )
+        if conflict_block:
+            raise HTTPException(status_code=409, detail="이동하려는 녹음실은 해당 시간이 예약불가입니다.")
+
+        reservation.room_id = room.id
+        db.commit()
+        db.refresh(reservation)
+        item = public_reservation(reservation)
+        item["room_name"] = room.name
+        return item
+    except HTTPException:
         db.rollback()
         raise
 
@@ -880,6 +1333,86 @@ def admin_logout():
 # Admin API - scoped to selected academy
 # -----------------------------
 
+@app.get("/api/admin/categories")
+def admin_list_categories(request: Request, db: Session = Depends(get_db)):
+    academy_id = _admin_academy_id(request)
+    rows = db.scalars(
+        select(MemberCategory)
+        .where(MemberCategory.academy_id == academy_id)
+        .order_by(MemberCategory.name.asc(), MemberCategory.id.asc())
+    ).all()
+    return [category_dict(row) for row in rows]
+
+
+@app.post("/api/admin/categories", status_code=201)
+def admin_create_category(
+    payload: MemberCategoryCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    academy_id = _admin_academy_id(request)
+    row = MemberCategory(academy_id=academy_id, name=payload.name.strip())
+    db.add(row)
+    try:
+        db.commit()
+        db.refresh(row)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 같은 이름의 카테고리가 있습니다.")
+    return category_dict(row)
+
+
+@app.patch("/api/admin/categories/{category_id}")
+def admin_update_category(
+    category_id: int,
+    payload: MemberCategoryUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    academy_id = _admin_academy_id(request)
+    row = db.scalar(
+        select(MemberCategory).where(
+            MemberCategory.id == category_id,
+            MemberCategory.academy_id == academy_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다.")
+    row.name = payload.name.strip()
+    try:
+        db.commit()
+        db.refresh(row)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 같은 이름의 카테고리가 있습니다.")
+    return category_dict(row)
+
+
+@app.delete("/api/admin/categories/{category_id}")
+def admin_delete_category(category_id: int, request: Request, db: Session = Depends(get_db)):
+    academy_id = _admin_academy_id(request)
+    row = db.scalar(
+        select(MemberCategory).where(
+            MemberCategory.id == category_id,
+            MemberCategory.academy_id == academy_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="카테고리를 찾을 수 없습니다.")
+
+    policies = db.scalars(
+        select(MemberPolicy).where(
+            MemberPolicy.academy_id == academy_id,
+            MemberPolicy.category_id == category_id,
+        )
+    ).all()
+    for policy in policies:
+        policy.category_id = None
+    db.delete(row)
+    db.commit()
+    return {"ok": True}
+
+
 @app.get("/api/admin/users")
 def admin_list_users(request: Request, db: Session = Depends(get_db)):
     academy_id = _admin_academy_id(request)
@@ -888,12 +1421,32 @@ def admin_list_users(request: Request, db: Session = Depends(get_db)):
         .where(AuthorizedUser.academy_id == academy_id)
         .order_by(AuthorizedUser.name.asc(), AuthorizedUser.id.asc())
     ).all()
-    return [authorized_user_dict(row) for row in rows]
+    policies = {
+        row.user_id: row
+        for row in db.scalars(
+            select(MemberPolicy).where(MemberPolicy.academy_id == academy_id)
+        ).all()
+    }
+    categories = {
+        row.id: row
+        for row in db.scalars(
+            select(MemberCategory).where(MemberCategory.academy_id == academy_id)
+        ).all()
+    }
+    return [
+        authorized_user_dict(
+            row,
+            policies.get(row.id),
+            categories.get(policies[row.id].category_id) if row.id in policies and policies[row.id].category_id else None,
+        )
+        for row in rows
+    ]
 
 
 @app.post("/api/admin/users", status_code=201)
 def admin_create_user(payload: AuthorizedUserCreate, request: Request, db: Session = Depends(get_db)):
     academy_id = _admin_academy_id(request)
+    category = _validate_category_for_academy(db, academy_id, payload.category_id)
     row = AuthorizedUser(
         academy_id=academy_id,
         name=payload.name.strip(),
@@ -901,12 +1454,69 @@ def admin_create_user(payload: AuthorizedUserCreate, request: Request, db: Sessi
     )
     db.add(row)
     try:
+        db.flush()
+        policy = MemberPolicy(
+            user_id=row.id,
+            academy_id=academy_id,
+            category_id=category.id if category else None,
+            booking_limit_hours=payload.booking_limit_hours,
+            allow_additional_booking=payload.allow_additional_booking,
+        )
+        db.add(policy)
         db.commit()
         db.refresh(row)
+        db.refresh(policy)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="이미 같은 이름과 전화번호 끝 4자리가 등록되어 있습니다.")
-    return authorized_user_dict(row)
+    return authorized_user_dict(row, policy, category)
+
+
+@app.patch("/api/admin/users/{user_id}")
+def admin_update_user(
+    user_id: int,
+    payload: AuthorizedUserUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    academy_id = _admin_academy_id(request)
+    row = db.scalar(
+        select(AuthorizedUser).where(
+            AuthorizedUser.id == user_id,
+            AuthorizedUser.academy_id == academy_id,
+        )
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail="등록 사용자를 찾을 수 없습니다.")
+
+    policy = _get_member_policy(db, row, create=True)
+
+    if payload.name is not None:
+        row.name = payload.name.strip()
+    if payload.phone_last4 is not None:
+        row.phone_last4 = payload.phone_last4
+
+    fields = payload.model_fields_set
+    if "category_id" in fields:
+        category = _validate_category_for_academy(db, academy_id, payload.category_id)
+        policy.category_id = category.id if category else None
+    else:
+        category = _validate_category_for_academy(db, academy_id, policy.category_id) if policy.category_id else None
+
+    if "booking_limit_hours" in fields:
+        policy.booking_limit_hours = payload.booking_limit_hours
+    if "allow_additional_booking" in fields and payload.allow_additional_booking is not None:
+        policy.allow_additional_booking = payload.allow_additional_booking
+    policy.updated_at = now_utc()
+
+    try:
+        db.commit()
+        db.refresh(row)
+        db.refresh(policy)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="이미 같은 이름과 전화번호 끝 4자리가 등록되어 있습니다.")
+    return authorized_user_dict(row, policy, category)
 
 
 @app.delete("/api/admin/users/{user_id}")
@@ -920,6 +1530,7 @@ def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_
     )
     if row is None:
         raise HTTPException(status_code=404, detail="등록 사용자를 찾을 수 없습니다.")
+    db.execute(delete(MemberPolicy).where(MemberPolicy.user_id == row.id))
     db.delete(row)
     db.commit()
     return {"ok": True}
@@ -961,7 +1572,13 @@ def admin_list_rooms(request: Request, db: Session = Depends(get_db)):
             Room.is_deleted.is_(False),
         ).order_by(Room.name.asc())
     ).all()
-    return [room_dict(r) for r in rooms]
+    schedules = {
+        row.room_id: row
+        for row in db.scalars(
+            select(RoomSchedule).where(RoomSchedule.academy_id == academy_id)
+        ).all()
+    }
+    return [room_dict(r, schedules.get(r.id)) for r in rooms]
 
 
 @app.post("/api/admin/rooms", status_code=201)
@@ -980,20 +1597,34 @@ def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depen
             existing.is_deleted = False
             existing.is_paused = False
             existing.pause_reason = None
+            schedule = _get_room_schedule(db, existing, create=True)
+            schedule.open_hour = payload.open_hour
+            schedule.close_hour = payload.close_hour
+            schedule.updated_at = now_utc()
             db.commit()
             db.refresh(existing)
-            return room_dict(existing)
+            db.refresh(schedule)
+            return room_dict(existing, schedule)
         raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
 
     room = Room(academy_id=academy_id, name=name)
     db.add(room)
     try:
+        db.flush()
+        schedule = RoomSchedule(
+            room_id=room.id,
+            academy_id=academy_id,
+            open_hour=payload.open_hour,
+            close_hour=payload.close_hour,
+        )
+        db.add(schedule)
         db.commit()
         db.refresh(room)
+        db.refresh(schedule)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
-    return room_dict(room)
+    return room_dict(room, schedule)
 
 
 @app.patch("/api/admin/rooms/{room_id}")
@@ -1021,13 +1652,23 @@ def admin_update_room(
     if payload.pause_reason is not None or payload.is_paused is False:
         room.pause_reason = payload.pause_reason if payload.is_paused is not False else None
 
+    schedule = _get_room_schedule(db, room, create=True)
+    open_hour = payload.open_hour if payload.open_hour is not None else schedule.open_hour
+    close_hour = payload.close_hour if payload.close_hour is not None else schedule.close_hour
+    if close_hour <= open_hour:
+        raise HTTPException(status_code=422, detail="마감시간은 오픈시간보다 뒤여야 합니다.")
+    schedule.open_hour = open_hour
+    schedule.close_hour = close_hour
+    schedule.updated_at = now_utc()
+
     try:
         db.commit()
         db.refresh(room)
+        db.refresh(schedule)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
-    return room_dict(room)
+    return room_dict(room, schedule)
 
 
 @app.delete("/api/admin/rooms/{room_id}")
@@ -1063,6 +1704,91 @@ def admin_list_reservations(
         stmt = stmt.where(Reservation.cancelled_at.is_(None))
     rows = db.scalars(stmt.order_by(Reservation.start_at.desc())).all()
     return [admin_reservation(r) for r in rows]
+
+
+@app.patch("/api/admin/reservations/{reservation_id}")
+def admin_update_reservation(
+    reservation_id: str,
+    payload: AdminReservationUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    academy_id = _admin_academy_id(request)
+
+    try:
+        row = db.scalar(
+            select(Reservation)
+            .where(
+                Reservation.id == reservation_id,
+                Reservation.academy_id == academy_id,
+            )
+            .with_for_update()
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="예약을 찾을 수 없습니다.")
+        if row.cancelled_at is not None:
+            raise HTTPException(status_code=409, detail="취소된 예약은 수정할 수 없습니다.")
+        if _aware_utc(row.end_at) <= now_utc():
+            raise HTTPException(status_code=409, detail="이미 종료된 예약은 수정할 수 없습니다.")
+
+        room_id = payload.room_id if payload.room_id is not None else row.room_id
+        start = normalize_utc(payload.start_at) if payload.start_at is not None else _aware_utc(row.start_at)
+        end = normalize_utc(payload.end_at) if payload.end_at is not None else _aware_utc(row.end_at)
+
+        if end <= start:
+            raise HTTPException(status_code=422, detail="종료 시간은 시작 시간보다 뒤여야 합니다.")
+
+        room = db.scalar(
+            select(Room)
+            .where(
+                Room.id == room_id,
+                Room.academy_id == academy_id,
+                Room.is_deleted.is_(False),
+            )
+            .with_for_update()
+        )
+        if room is None:
+            raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+        if room.is_paused:
+            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 녹음실은 현재 사용중지 상태입니다.")
+
+        schedule = _get_room_schedule(db, room, create=False)
+        if not _is_within_room_schedule(start, end, schedule):
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+
+        conflict_reservation = db.scalar(
+            select(Reservation).where(
+                Reservation.academy_id == academy_id,
+                Reservation.room_id == room.id,
+                Reservation.id != row.id,
+                Reservation.cancelled_at.is_(None),
+                Reservation.start_at < end,
+                Reservation.end_at > start,
+            )
+        )
+        if conflict_reservation:
+            raise HTTPException(status_code=409, detail="수정하려는 시간에 다른 예약이 있습니다.")
+
+        conflict_block = db.scalar(
+            select(UnavailableBlock).where(
+                UnavailableBlock.academy_id == academy_id,
+                UnavailableBlock.room_id == room.id,
+                UnavailableBlock.start_at < end,
+                UnavailableBlock.end_at > start,
+            )
+        )
+        if conflict_block:
+            raise HTTPException(status_code=409, detail="수정하려는 시간은 예약불가로 지정되어 있습니다.")
+
+        row.room_id = room.id
+        row.start_at = start
+        row.end_at = end
+        db.commit()
+        db.refresh(row)
+        return admin_reservation(row)
+    except HTTPException:
+        db.rollback()
+        raise
 
 
 @app.post("/api/admin/reservations/{reservation_id}/cancel")
