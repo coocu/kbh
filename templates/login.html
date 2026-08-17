@@ -44,6 +44,52 @@
     .hidden { display:none; }
     .modal-actions { display:flex; gap:8px; }
     .modal-actions button { flex:1; }
+
+    /* 모바일 학원관리 버튼만 컴팩트하게 표시 */
+    @media (max-width:600px) {
+      .academy-delete-row {
+        gap:8px;
+        padding:10px 0;
+      }
+
+      .academy-delete-actions {
+        gap:5px;
+        flex-wrap:nowrap;
+      }
+
+      .academy-delete-row button {
+        width:auto;
+        min-width:0;
+        padding:6px 8px;
+        font-size:12px;
+        line-height:1.2;
+        border-radius:10px;
+        white-space:nowrap;
+      }
+
+      #academyActionModal .modal-card {
+        padding:20px;
+      }
+
+      #academyActionModal .modal-card > div[style*="display:flex"] {
+        justify-content:flex-end;
+        gap:7px !important;
+      }
+
+      #academyActionModal .modal-card > div[style*="display:flex"] button {
+        flex:0 0 auto;
+        width:auto;
+        min-width:78px;
+        padding:9px 14px;
+        font-size:15px;
+        border-radius:11px;
+      }
+
+      #academyActionModal .modal-card > div[style*="display:flex"] button.secondary {
+        margin-top:0;
+      }
+    }
+
   </style>
 </head>
 <body>
