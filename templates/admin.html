@@ -125,18 +125,6 @@
       background:color-mix(in srgb, #30d158 16%, transparent);
       font-size:12px; font-weight:700;
     }
-    .category-sort-item { transition:transform .12s ease, opacity .12s ease, box-shadow .12s ease; }
-    .category-sort-item.category-dragging { opacity:.72; box-shadow:0 10px 28px rgba(0,0,0,.18); }
-    .category-drag-handle,
-    .tab-order-drag-handle {
-      display:inline-flex; align-items:center; justify-content:center;
-      width:36px; height:36px; border-radius:10px;
-      cursor:grab; user-select:none; -webkit-user-select:none; touch-action:none;
-      font-size:21px; font-weight:900; line-height:1; opacity:.62;
-      flex:0 0 auto;
-    }
-    .category-drag-handle:active,
-    .tab-order-drag-handle:active { cursor:grabbing; opacity:1; }
     .member-card-head {
       display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px;
     }
@@ -152,7 +140,7 @@
     .tab-order-list { display:grid; gap:8px; margin-top:12px; }
     .tab-order-row { display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius:14px; }
     .tab-order-row strong { flex:1; min-width:0; }
-    .tab-order-row.tab-dragging { opacity:.72; box-shadow:0 10px 28px rgba(0,0,0,.18); }
+    .tab-order-row button { min-width:44px; padding:7px 10px; }
     .member-booking-summary {
       display:grid; gap:7px; padding:12px; margin:10px 0;
       border-radius:14px; background:color-mix(in srgb, #0a84ff 7%, transparent);
@@ -628,7 +616,7 @@
     <section class="card">
       <div class="member-card-head">
         <h2>원생/강사 로그인 관리</h2>
-        {% if admin_role == 'admin' %}<button type="button" onclick="openCategoryManager()">카테고리 관리</button>{% endif %}
+        <button type="button" onclick="openCategoryManager()">카테고리 관리</button>
       </div>
 
       <div class="policy-grid">
@@ -734,7 +722,6 @@
     </div>
   </div>
 
-  {% if admin_role == 'admin' %}
   <div id="categoryManagerModal" class="modal-backdrop" onclick="if(event.target===this) closeCategoryManager()">
     <div class="modal-card">
       <div class="member-card-head">
@@ -745,21 +732,19 @@
         <input id="categoryName" class="grow" placeholder="예: 취미반, 입시반">
         <button class="primary" onclick="createMemberCategory()">추가</button>
       </div>
-      <div class="muted" style="margin-top:8px">≡ 손잡이를 길게 눌러 드래그하면 카테고리 순서를 변경할 수 있습니다.</div>
       <div id="memberCategories"></div>
     </div>
   </div>
-  {% endif %}
 
   <div id="memberEditModal" class="modal-backdrop" onclick="if(event.target===this) closeMemberEditor()">
     <div class="modal-card">
       <h2>회원 수정</h2>
       <input id="editUserId" type="hidden">
-      <div class="field">
+      <div class="field main-admin-only">
         <label class="muted">이름</label>
         <input id="editUserName" placeholder="이름">
       </div>
-      <div class="field" style="margin-top:10px">
+      <div class="field main-admin-only" style="margin-top:10px">
         <label class="muted">전화 끝 4자리</label>
         <input id="editUserPhone4" inputmode="numeric" maxlength="4" placeholder="0000">
       </div>
@@ -767,11 +752,11 @@
         <label class="muted">카테고리</label>
         <select id="editUserCategory"></select>
       </div>
-      <div class="field" style="margin-top:10px">
+      <div class="field main-admin-only" style="margin-top:10px">
         <label class="muted">예약시간 제한</label>
         <input id="editUserBookingLimit" type="number" min="1" max="24" placeholder="미지정 = 자유">
       </div>
-      <label class="inline-check" style="margin-top:10px">
+      <label class="inline-check main-admin-only" style="margin-top:10px">
         <input id="editUserAllowAdditional" type="checkbox">
         추가예약 가능
       </label>
@@ -1087,12 +1072,11 @@
     <section class="card">
       <h2>백업/복원</h2>
       <div class="muted">현재 로그인한 학원의 회원, 카테고리, 연습실, 운영시간, 예약, 예약불가, 연습일지 등 운영데이터만 ZIP으로 백업합니다. 학원명, 활성상태, 최초 관리자 정보와 관리자 비밀번호는 포함하지 않습니다.</div>
-      <div class="muted" style="margin-top:6px">복원할 때는 백업받은 ZIP을 압축 해제하지 말고 ZIP 파일 그대로 선택하면 됩니다.</div>
       <div class="row" style="margin-top:14px">
         <button type="button" class="primary" onclick="downloadOperationalBackup()">ZIP 백업</button>
         <button type="button" onclick="startOperationalRestore()">ZIP 복원</button>
       </div>
-      <input id="restoreBackupFile" type="file" style="position:fixed;left:-10000px;top:auto;width:1px;height:1px;opacity:0;pointer-events:none" onchange="prepareOperationalRestore()">
+      <input id="restoreBackupFile" type="file" accept=".zip,application/zip" style="display:none" onchange="prepareOperationalRestore()">
       <div id="restoreBackupReady" class="card" style="display:none;margin-top:14px;padding:14px">
         <strong id="restoreBackupFileName"></strong>
         <div class="muted" style="margin-top:6px">복원하면 현재 학원의 운영데이터가 삭제되고 선택한 ZIP 내용으로 교체됩니다. 학원명과 관리자 로그인 정보는 유지됩니다.</div>
@@ -1110,7 +1094,7 @@
         <h2>카테고리 정렬</h2>
         <button type="button" onclick="closeTabOrderManager()">닫기</button>
       </div>
-      <div class="muted">≡ 손잡이를 길게 눌러 드래그하면 관리자 메뉴 순서를 변경할 수 있습니다.</div>
+      <div class="muted">위/아래 버튼으로 관리자 메뉴 순서를 변경할 수 있습니다.</div>
       <div id="tabOrderList" class="tab-order-list"></div>
       <div class="modal-actions">
         <button type="button" onclick="resetTabOrder()">기본순서</button>
@@ -1166,80 +1150,12 @@ function applyStoredTabOrder() {
 
 function renderTabOrderList() {
   const labels = Object.fromEntries(Array.from(document.querySelectorAll('.admin-tabs-inner .tab-button')).map(button => [button.dataset.tab, button.textContent.trim()]));
-  const list = document.getElementById('tabOrderList');
-  list.innerHTML = pendingTabOrder.map(tab => `
-    <div class="tab-order-row" data-tab="${tab}">
-      <span class="tab-order-drag-handle" title="길게 눌러 순서 변경" aria-label="${escapeHtml(labels[tab] || tab)} 순서 변경">≡</span>
+  document.getElementById('tabOrderList').innerHTML = pendingTabOrder.map((tab, index) => `
+    <div class="tab-order-row">
       <strong>${escapeHtml(labels[tab] || tab)}</strong>
+      <button type="button" onclick="moveTabOrder(${index}, -1)" ${index === 0 ? 'disabled' : ''}>↑</button>
+      <button type="button" onclick="moveTabOrder(${index}, 1)" ${index === pendingTabOrder.length - 1 ? 'disabled' : ''}>↓</button>
     </div>`).join('');
-  enableTabOrderDrag();
-}
-
-function enableTabOrderDrag() {
-  const list = document.getElementById('tabOrderList');
-  if (!list || adminRole !== 'admin') return;
-
-  list.querySelectorAll('.tab-order-drag-handle').forEach(handle => {
-    handle.onpointerdown = event => {
-      if (event.button != null && event.button !== 0) return;
-      const item = handle.closest('.tab-order-row');
-      if (!item) return;
-
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const pointerId = event.pointerId;
-      let active = false;
-      let finished = false;
-      let holdTimer = null;
-
-      const activate = () => {
-        if (finished || active) return;
-        active = true;
-        item.classList.add('tab-dragging');
-        try { handle.setPointerCapture(pointerId); } catch (_) {}
-      };
-
-      if (event.pointerType === 'mouse') activate();
-      else holdTimer = setTimeout(activate, 350);
-
-      const onMove = moveEvent => {
-        if (finished || moveEvent.pointerId !== pointerId) return;
-        if (!active) {
-          if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 10) {
-            clearTimeout(holdTimer);
-            finish(false);
-          }
-          return;
-        }
-        moveEvent.preventDefault();
-        const target = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest('.tab-order-row');
-        if (!target || target === item || target.parentElement !== list) return;
-        const rect = target.getBoundingClientRect();
-        if (moveEvent.clientY < rect.top + rect.height / 2) list.insertBefore(item, target);
-        else list.insertBefore(item, target.nextSibling);
-      };
-
-      const finish = keepOrder => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(holdTimer);
-        item.classList.remove('tab-dragging');
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onCancel);
-        if (!keepOrder || !active) return;
-        pendingTabOrder = [...list.querySelectorAll('.tab-order-row')].map(row => row.dataset.tab);
-      };
-
-      const onUp = upEvent => { if (upEvent.pointerId === pointerId) finish(true); };
-      const onCancel = cancelEvent => { if (cancelEvent.pointerId === pointerId) finish(false); };
-
-      window.addEventListener('pointermove', onMove, {passive:false});
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onCancel);
-      event.preventDefault();
-    };
-  });
 }
 
 function openTabOrderManager() {
@@ -1251,6 +1167,13 @@ function openTabOrderManager() {
 
 function closeTabOrderManager() {
   document.getElementById('tabOrderModal').classList.remove('active');
+}
+
+function moveTabOrder(index, delta) {
+  const next = index + delta;
+  if (next < 0 || next >= pendingTabOrder.length) return;
+  [pendingTabOrder[index], pendingTabOrder[next]] = [pendingTabOrder[next], pendingTabOrder[index]];
+  renderTabOrderList();
 }
 
 function saveTabOrder() {
@@ -2009,113 +1932,19 @@ function categoryOptions(selectedId=null, includeAll=false) {
   ).join('');
 }
 
-async function saveMemberCategoryOrder(categoryIds) {
-  if (adminRole !== 'admin') return;
-  const ordered = await api('/api/admin/categories/reorder', {
-    method:'POST',
-    body:JSON.stringify({category_ids:categoryIds})
-  });
-  memberCategories = ordered;
-  renderMemberCategories();
-}
-
-function enableMemberCategoryDrag() {
-  if (adminRole !== 'admin') return;
-  const list = document.getElementById('memberCategories');
-  if (!list) return;
-
-  list.querySelectorAll('.category-drag-handle').forEach(handle => {
-    handle.onpointerdown = event => {
-      if (event.button != null && event.button !== 0) return;
-      const item = handle.closest('.category-sort-item');
-      if (!item) return;
-
-      const startX = event.clientX;
-      const startY = event.clientY;
-      const pointerId = event.pointerId;
-      let active = false;
-      let finished = false;
-      let holdTimer = null;
-
-      const activate = () => {
-        if (finished || active) return;
-        active = true;
-        item.classList.add('category-dragging');
-        try { handle.setPointerCapture(pointerId); } catch (_) {}
-      };
-
-      if (event.pointerType === 'mouse') activate();
-      else holdTimer = setTimeout(activate, 350);
-
-      const onMove = moveEvent => {
-        if (finished || moveEvent.pointerId !== pointerId) return;
-        if (!active) {
-          if (Math.hypot(moveEvent.clientX - startX, moveEvent.clientY - startY) > 10) {
-            clearTimeout(holdTimer);
-            finish(false);
-          }
-          return;
-        }
-        moveEvent.preventDefault();
-        const target = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest('.category-sort-item');
-        if (!target || target === item || target.parentElement !== list) return;
-        const rect = target.getBoundingClientRect();
-        if (moveEvent.clientY < rect.top + rect.height / 2) list.insertBefore(item, target);
-        else list.insertBefore(item, target.nextSibling);
-      };
-
-      const finish = save => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(holdTimer);
-        item.classList.remove('category-dragging');
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-        window.removeEventListener('pointercancel', onCancel);
-        if (!save || !active) return;
-
-        const categoryIds = [...list.querySelectorAll('.category-sort-item')]
-          .map(el => Number(el.dataset.categoryId));
-        const currentIds = memberCategories.map(c => c.id);
-        if (categoryIds.length === currentIds.length && categoryIds.some((id, index) => id !== currentIds[index])) {
-          const byId = new Map(memberCategories.map(c => [c.id, c]));
-          memberCategories = categoryIds.map(id => byId.get(id)).filter(Boolean);
-          renderMemberCategories();
-          saveMemberCategoryOrder(categoryIds).catch(async e => {
-            alert(e.message);
-            await loadMemberCategories();
-          });
-        }
-      };
-
-      const onUp = upEvent => { if (upEvent.pointerId === pointerId) finish(true); };
-      const onCancel = cancelEvent => { if (cancelEvent.pointerId === pointerId) finish(false); };
-
-      window.addEventListener('pointermove', onMove, {passive:false});
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onCancel);
-      event.preventDefault();
-    };
-  });
-}
-
 function renderMemberCategories() {
   const list = document.getElementById('memberCategories');
   if (list) {
     list.innerHTML = memberCategories.map(c=>`
-      <div class="room category-sort-item" data-category-id="${c.id}">
+      <div class="room">
         <div class="row" style="justify-content:space-between">
-          <div class="row" style="min-width:0">
-            <span class="category-drag-handle" title="길게 눌러 순서 변경" aria-label="${escapeHtml(c.name)} 순서 변경">≡</span>
-            <strong>${escapeHtml(c.name)}</strong>
-          </div>
+          <strong>${escapeHtml(c.name)}</strong>
           <div class="row">
             <button onclick='renameMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>수정</button>
             <button class="danger" onclick='deleteMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>삭제</button>
           </div>
         </div>
       </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 카테고리가 없습니다.</div>';
-    enableMemberCategoryDrag();
   }
 
   const createSelect = document.getElementById('userCategory');
@@ -2155,13 +1984,12 @@ function renderMemberCategories() {
 }
 
 function openCategoryManager() {
-  if (adminRole !== 'admin') return;
   renderMemberCategories();
-  document.getElementById('categoryManagerModal')?.classList.add('active');
+  document.getElementById('categoryManagerModal').classList.add('active');
 }
 
 function closeCategoryManager() {
-  document.getElementById('categoryManagerModal')?.classList.remove('active');
+  document.getElementById('categoryManagerModal').classList.remove('active');
 }
 
 async function loadMemberCategories() {
@@ -2432,28 +2260,35 @@ function closeMemberEditor() {
 
 async function saveMemberEdit() {
   const id = Number(document.getElementById('editUserId').value);
-  const name = document.getElementById('editUserName').value.trim();
-  const phone_last4 = document.getElementById('editUserPhone4').value.trim();
   const categoryValue = document.getElementById('editUserCategory').value;
-  let booking_limit_hours;
-  try {
-    booking_limit_hours = readBookingLimit(document.getElementById('editUserBookingLimit').value);
-  } catch(e) { return alert(e.message); }
-  const allow_additional_booking = document.getElementById('editUserAllowAdditional').checked;
 
-  if (!name) return alert('이름을 입력해 주세요.');
-  if (!/^\d{4}$/.test(phone_last4)) return alert('전화번호 끝 4자리는 숫자 4자리로 입력해 주세요.');
+  let body;
+  if (adminRole === 'subadmin') {
+    body = { category_id: categoryValue ? Number(categoryValue) : null };
+  } else {
+    const name = document.getElementById('editUserName').value.trim();
+    const phone_last4 = document.getElementById('editUserPhone4').value.trim();
+    let booking_limit_hours;
+    try {
+      booking_limit_hours = readBookingLimit(document.getElementById('editUserBookingLimit').value);
+    } catch(e) { return alert(e.message); }
+    const allow_additional_booking = document.getElementById('editUserAllowAdditional').checked;
+
+    if (!name) return alert('이름을 입력해 주세요.');
+    if (!/^\d{4}$/.test(phone_last4)) return alert('전화번호 끝 4자리는 숫자 4자리로 입력해 주세요.');
+    body = {
+      name,
+      phone_last4,
+      category_id: categoryValue ? Number(categoryValue) : null,
+      booking_limit_hours,
+      allow_additional_booking,
+    };
+  }
 
   try {
     await api('/api/admin/users/'+id, {
       method:'PATCH',
-      body:JSON.stringify({
-        name,
-        phone_last4,
-        category_id: categoryValue ? Number(categoryValue) : null,
-        booking_limit_hours,
-        allow_additional_booking,
-      })
+      body:JSON.stringify(body)
     });
     closeMemberEditor();
     await loadAuthorizedUsers();
@@ -2499,7 +2334,7 @@ function renderAuthorizedUsers() {
       <td data-label="관리" class="actions"><div class="mobile-actions">
         <button onclick="openMemberEditor(${u.id})">수정</button>
         <button class="primary" onclick="openMemberReservation(${u.id})">예약</button>
-        <button class="danger" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
+        <button class="danger main-admin-only" onclick='deleteAuthorizedUser(${u.id}, ${JSON.stringify(u.name)})'>삭제</button>
       </div></td>
     </tr>`).join('') || `<tr><td colspan="5" class="muted empty-row">${emptyMessage}</td></tr>`;
 }

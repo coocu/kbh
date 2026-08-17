@@ -65,10 +65,6 @@ from security import (
 )
 
 
-class MemberCategoryReorderPayload(BaseModel):
-    category_ids: list[int]
-
-
 class PracticeJournalCreatePayload(BaseModel):
     content: str = Field(min_length=1, max_length=3000)
 
@@ -384,7 +380,6 @@ def category_dict(row: MemberCategory) -> dict:
     return {
         "id": row.id,
         "name": row.name,
-        "sort_order": row.sort_order,
         "created_at": row.created_at,
     }
 
@@ -796,41 +791,6 @@ def _ensure_room_schedule_advance_columns() -> None:
             connection.execute(text(statement))
 
 
-def _ensure_member_category_sort_order_column() -> None:
-    """기존 회원 카테고리 테이블에 순서 저장 컬럼만 안전하게 추가한다."""
-    inspector = inspect(engine)
-    if "academy_member_categories" not in set(inspector.get_table_names()):
-        return
-
-    existing_columns = {
-        column["name"]
-        for column in inspector.get_columns("academy_member_categories")
-    }
-    if "sort_order" in existing_columns:
-        return
-
-    with engine.begin() as connection:
-        connection.execute(text(
-            "ALTER TABLE academy_member_categories "
-            "ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
-        ))
-
-    # 최초 추가 시 기존 화면에서 보이던 이름순을 그대로 초기 순서로 사용한다.
-    with SessionLocal() as db:
-        academy_ids = db.scalars(
-            select(MemberCategory.academy_id).distinct().order_by(MemberCategory.academy_id.asc())
-        ).all()
-        for academy_id in academy_ids:
-            rows = db.scalars(
-                select(MemberCategory)
-                .where(MemberCategory.academy_id == academy_id)
-                .order_by(MemberCategory.name.asc(), MemberCategory.id.asc())
-            ).all()
-            for index, row in enumerate(rows, start=1):
-                row.sort_order = index
-        db.commit()
-
-
 def _migrate_legacy_single_academy():
     """
     기존 1개 학원용 테이블은 삭제하지 않고 그대로 보존한다.
@@ -945,7 +905,6 @@ def _migrate_legacy_single_academy():
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _ensure_room_schedule_advance_columns()
-    _ensure_member_category_sort_order_column()
     _migrate_legacy_single_academy()
 
     if os.getenv("RENDER") == "true":
@@ -2249,12 +2208,6 @@ def admin_set_subadmin_password(
     db: Session = Depends(get_db),
 ):
     academy_id = _main_admin_academy_id(request)
-    main_credential = get_admin_credential(db, academy_id)
-    if verify_password(payload.password, main_credential.password_hash):
-        raise HTTPException(
-            status_code=409,
-            detail="메인 관리자 비밀번호와 동일하게 설정할 수 없습니다.",
-        )
     credential = get_subadmin_credential(db, academy_id)
     if credential is None:
         credential = SubAdminCredential(
@@ -2275,7 +2228,7 @@ def admin_list_categories(request: Request, db: Session = Depends(get_db)):
     rows = db.scalars(
         select(MemberCategory)
         .where(MemberCategory.academy_id == academy_id)
-        .order_by(MemberCategory.sort_order.asc(), MemberCategory.id.asc())
+        .order_by(MemberCategory.name.asc(), MemberCategory.id.asc())
     ).all()
     return [category_dict(row) for row in rows]
 
@@ -2286,19 +2239,8 @@ def admin_create_category(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    academy_id = _main_admin_academy_id(request)
-    next_sort_order = (
-        db.scalar(
-            select(func.max(MemberCategory.sort_order))
-            .where(MemberCategory.academy_id == academy_id)
-        )
-        or 0
-    ) + 1
-    row = MemberCategory(
-        academy_id=academy_id,
-        name=payload.name.strip(),
-        sort_order=next_sort_order,
-    )
+    academy_id = _admin_academy_id(request)
+    row = MemberCategory(academy_id=academy_id, name=payload.name.strip())
     db.add(row)
     try:
         db.commit()
@@ -2309,31 +2251,6 @@ def admin_create_category(
     return category_dict(row)
 
 
-@app.post("/api/admin/categories/reorder")
-def admin_reorder_categories(
-    payload: MemberCategoryReorderPayload,
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    academy_id = _main_admin_academy_id(request)
-    rows = db.scalars(
-        select(MemberCategory)
-        .where(MemberCategory.academy_id == academy_id)
-        .order_by(MemberCategory.sort_order.asc(), MemberCategory.id.asc())
-    ).all()
-    current_ids = [row.id for row in rows]
-    requested_ids = payload.category_ids
-    if len(requested_ids) != len(current_ids) or set(requested_ids) != set(current_ids):
-        raise HTTPException(status_code=422, detail="카테고리 순서 정보가 올바르지 않습니다.")
-
-    rows_by_id = {row.id: row for row in rows}
-    for index, category_id in enumerate(requested_ids, start=1):
-        rows_by_id[category_id].sort_order = index
-    db.commit()
-
-    return [category_dict(rows_by_id[category_id]) for category_id in requested_ids]
-
-
 @app.patch("/api/admin/categories/{category_id}")
 def admin_update_category(
     category_id: int,
@@ -2341,7 +2258,7 @@ def admin_update_category(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    academy_id = _main_admin_academy_id(request)
+    academy_id = _admin_academy_id(request)
     row = db.scalar(
         select(MemberCategory).where(
             MemberCategory.id == category_id,
@@ -2362,7 +2279,7 @@ def admin_update_category(
 
 @app.delete("/api/admin/categories/{category_id}")
 def admin_delete_category(category_id: int, request: Request, db: Session = Depends(get_db)):
-    academy_id = _main_admin_academy_id(request)
+    academy_id = _admin_academy_id(request)
     row = db.scalar(
         select(MemberCategory).where(
             MemberCategory.id == category_id,
@@ -2452,6 +2369,11 @@ def admin_update_user(
     db: Session = Depends(get_db),
 ):
     academy_id = _admin_academy_id(request)
+    auth = require_admin(request)
+    fields = payload.model_fields_set
+    if auth.get("role") == "subadmin" and (not fields or fields - {"category_id"}):
+        raise HTTPException(status_code=403, detail="서브관리자는 회원 카테고리만 수정할 수 있습니다.")
+
     row = db.scalar(
         select(AuthorizedUser).where(
             AuthorizedUser.id == user_id,
@@ -2468,7 +2390,6 @@ def admin_update_user(
     if payload.phone_last4 is not None:
         row.phone_last4 = payload.phone_last4
 
-    fields = payload.model_fields_set
     if "category_id" in fields:
         category = _validate_category_for_academy(db, academy_id, payload.category_id)
         policy.category_id = category.id if category else None
@@ -2493,7 +2414,7 @@ def admin_update_user(
 
 @app.delete("/api/admin/users/{user_id}")
 def admin_delete_user(user_id: int, request: Request, db: Session = Depends(get_db)):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     row = db.scalar(
         select(AuthorizedUser).where(
             AuthorizedUser.id == user_id,
@@ -2939,9 +2860,6 @@ def _validate_operational_backup(payload: dict) -> dict:
     for row in categories:
         if not str(row.get("name", "")).strip():
             raise HTTPException(status_code=422, detail="백업 파일의 카테고리 이름이 올바르지 않습니다.")
-        sort_order = row.get("sort_order")
-        if sort_order is not None and (not isinstance(sort_order, int) or sort_order < 1):
-            raise HTTPException(status_code=422, detail="백업 파일의 카테고리 순서가 올바르지 않습니다.")
         _backup_datetime(row.get("created_at"), "카테고리 생성일")
 
     for row in users:
@@ -3029,11 +2947,7 @@ def _validate_operational_backup(payload: dict) -> dict:
 
 
 def _build_operational_backup(db: Session, academy_id: int) -> dict:
-    categories = db.scalars(
-        select(MemberCategory)
-        .where(MemberCategory.academy_id == academy_id)
-        .order_by(MemberCategory.sort_order.asc(), MemberCategory.id.asc())
-    ).all()
+    categories = db.scalars(select(MemberCategory).where(MemberCategory.academy_id == academy_id).order_by(MemberCategory.id.asc())).all()
     users = db.scalars(select(AuthorizedUser).where(AuthorizedUser.academy_id == academy_id).order_by(AuthorizedUser.id.asc())).all()
     policies = db.scalars(select(MemberPolicy).where(MemberPolicy.academy_id == academy_id).order_by(MemberPolicy.user_id.asc())).all()
     rooms = db.scalars(select(Room).where(Room.academy_id == academy_id).order_by(Room.id.asc())).all()
@@ -3054,12 +2968,7 @@ def _build_operational_backup(db: Session, academy_id: int) -> dict:
         "data": {
             # 학원명/학원ID/활성상태/최초관리자/관리자비밀번호 등 학원 계정 자체는 백업하지 않는다.
             "member_categories": [
-                {
-                    "source_id": row.id,
-                    "name": row.name,
-                    "sort_order": row.sort_order,
-                    "created_at": _backup_iso(row.created_at),
-                }
+                {"source_id": row.id, "name": row.name, "created_at": _backup_iso(row.created_at)}
                 for row in categories
             ],
             "authorized_users": [
@@ -3184,21 +3093,19 @@ async def admin_restore_backup(
     db: Session = Depends(get_db),
 ):
     academy_id = _main_admin_academy_id(request)
-    # 브라우저/WebView에 따라 ZIP 파일명이 다르게 전달될 수 있으므로
-    # 확장자만으로 막지 않고 실제 ZIP 데이터인지 아래에서 확인한다.
+    filename = (file.filename or "").lower()
+    if not filename.endswith(".zip"):
+        raise HTTPException(status_code=422, detail="뮤싱크 백업 ZIP 파일을 선택해 주세요.")
+
     raw = await file.read(BACKUP_MAX_UPLOAD_BYTES + 1)
     if not raw:
         raise HTTPException(status_code=422, detail="백업 ZIP 파일이 비어 있습니다.")
     if len(raw) > BACKUP_MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="백업 ZIP 파일은 50MB 이하만 복원할 수 있습니다.")
 
-    # 기존 운영데이터를 지우기 전에 ZIP 자체와 내부 구조/연결관계를 먼저 검증한다.
-    zip_buffer = io.BytesIO(raw)
-    if not zipfile.is_zipfile(zip_buffer):
-        raise HTTPException(status_code=422, detail="뮤싱크 백업 ZIP 파일을 선택해 주세요.")
-    zip_buffer.seek(0)
+    # 기존 운영데이터를 지우기 전에 ZIP 전체 구조와 연결관계를 먼저 검증한다.
     try:
-        with zipfile.ZipFile(zip_buffer, "r") as archive:
+        with zipfile.ZipFile(io.BytesIO(raw), "r") as archive:
             names = set(archive.namelist())
             if "manifest.json" not in names or "data.json" not in names:
                 raise HTTPException(status_code=422, detail="뮤싱크 백업 파일 형식이 아닙니다.")
@@ -3227,11 +3134,10 @@ async def admin_restore_backup(
         db.flush()
 
         category_map: dict[str, int] = {}
-        for index, source in enumerate(data["member_categories"], start=1):
+        for source in data["member_categories"]:
             row = MemberCategory(
                 academy_id=academy_id,
                 name=str(source["name"]).strip(),
-                sort_order=int(source.get("sort_order") or index),
                 created_at=_backup_datetime(source["created_at"], "카테고리 생성일"),
             )
             db.add(row)
