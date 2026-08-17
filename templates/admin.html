@@ -740,7 +740,7 @@
       <h2 id="adminNoticeTitle">안내</h2>
       <div id="adminNoticeText" style="white-space:pre-wrap;line-height:1.7;margin-top:12px"></div>
       <div class="modal-actions">
-        <button type="button" onclick="hideAdminNoticeFor7Days()">7일간 보지 않기</button>
+        <button type="button" onclick="hideAdminNoticeToday()">오늘 하루 보지 않기</button>
         <button type="button" class="primary" onclick="closeAdminNotice()">닫기</button>
       </div>
     </div>
@@ -1306,7 +1306,18 @@ function restoreAdminTab() {
 }
 
 function adminNoticeStorageKey() {
-  return `kbhAdminNoticeHiddenUntil:${academyId}`;
+  return `kbhAdminNoticeHiddenDate:${academyId}`;
+}
+
+function koreaDateKey() {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
 }
 
 let adminNoticeBodyLock = null;
@@ -1398,10 +1409,9 @@ function closeAdminNotice() {
   unlockAdminNoticeBackground();
 }
 
-function hideAdminNoticeFor7Days() {
-  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+function hideAdminNoticeToday() {
   try {
-    localStorage.setItem(adminNoticeStorageKey(), String(Date.now() + sevenDaysMs));
+    localStorage.setItem(adminNoticeStorageKey(), koreaDateKey());
   } catch (_) {}
   closeAdminNotice();
 }
@@ -1429,15 +1439,15 @@ async function maybeShowAdminLoginNotice() {
     history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
   } catch (_) {}
 
-  // 긴급공지는 7일 숨김과 무관하며, 파일 내용이 있으면 로그인할 때마다 먼저 표시한다.
+  // 긴급공지는 일반공지의 '오늘 하루 보지 않기'와 무관하며, 파일 내용이 있으면 로그인할 때마다 먼저 표시한다.
   const emergencyNotice = await fetchAdminNoticeText('/api/admin/emergency-notice');
 
   let regularNotice = '';
-  let hiddenUntil = 0;
+  let hiddenDate = '';
   try {
-    hiddenUntil = Number(localStorage.getItem(adminNoticeStorageKey()) || '0');
+    hiddenDate = localStorage.getItem(adminNoticeStorageKey()) || '';
   } catch (_) {}
-  if (hiddenUntil <= Date.now()) {
+  if (hiddenDate !== koreaDateKey()) {
     regularNotice = await fetchAdminNoticeText('/api/admin/notice');
   }
 
