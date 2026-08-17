@@ -422,7 +422,7 @@
       .usage-rank { width:44px; height:44px; }
       .usage-hours { min-width:70px; padding:8px 10px; }
 
-      /* 녹음실 한 줄을 모바일 카드처럼 정리 */
+      /* 연습실 한 줄을 모바일 카드처럼 정리 */
       #rooms .room { padding:14px 0; }
       #rooms .room > .row { display:block; margin:0; }
       .room-main strong { font-size:16px; }
@@ -531,10 +531,10 @@
 
 <nav class="admin-tabs" aria-label="관리자 메뉴">
   <div class="admin-tabs-inner">
-    <button type="button" class="tab-button active" data-tab="rooms" onclick="switchAdminTab('rooms')">녹음실 관리</button>
+    <button type="button" class="tab-button active" data-tab="rooms" onclick="switchAdminTab('rooms')">연습실 관리</button>
     <button type="button" class="tab-button" data-tab="members" onclick="switchAdminTab('members')">회원관리</button>
     <button type="button" class="tab-button" data-tab="reservations" onclick="switchAdminTab('reservations')">예약현황</button>
-    <button type="button" class="tab-button" data-tab="room-status" onclick="switchAdminTab('room-status')">녹음실 현황</button>
+    <button type="button" class="tab-button" data-tab="room-status" onclick="switchAdminTab('room-status')">연습실 현황</button>
     <button type="button" class="tab-button" data-tab="usage" onclick="switchAdminTab('usage')">이용현황</button>
     <button type="button" class="tab-button" data-tab="practice" onclick="switchAdminTab('practice')">연습일지체크</button>
     <button type="button" class="tab-button" data-tab="password" onclick="switchAdminTab('password')">비밀번호 변경</button>
@@ -546,9 +546,9 @@
   <section id="tab-rooms" class="tab-panel active">
     <div class="grid">
       <section class="card">
-        <h2>녹음실 관리</h2>
+        <h2>연습실 관리</h2>
         <div class="row">
-          <input id="newRoomName" placeholder="예: 녹음실 1" style="flex:1;min-width:170px">
+          <input id="newRoomName" placeholder="예: 연습실 1" style="flex:1;min-width:170px">
           <label class="muted">오픈
             <input id="newRoomOpenHour" type="number" min="0" max="23" value="0" style="width:82px">
           </label>
@@ -668,11 +668,11 @@
 
   <div id="roomEditModal" class="modal-backdrop" onclick="if(event.target===this) closeRoomEditor()">
     <div class="modal-card">
-      <h2>녹음실 수정</h2>
+      <h2>연습실 수정</h2>
       <input id="editRoomId" type="hidden">
       <div class="field">
-        <label class="muted">녹음실 이름</label>
-        <input id="editRoomName" placeholder="녹음실 이름">
+        <label class="muted">연습실 이름</label>
+        <input id="editRoomName" placeholder="연습실 이름">
       </div>
       <div class="policy-grid" style="margin-top:10px">
         <div class="field">
@@ -772,7 +772,7 @@
         <input id="memberReservationDate" type="date" onchange="clearMemberReservationHours(); renderMemberReservationHours()">
       </div>
       <div class="field" style="margin-top:10px">
-        <label class="muted">녹음실</label>
+        <label class="muted">연습실</label>
         <select id="memberReservationRoom" onchange="clearMemberReservationHours(); renderMemberReservationHours()"></select>
       </div>
 
@@ -826,7 +826,7 @@
 
       <div class="scroll">
         <table class="reservation-table">
-          <thead><tr><th>상태</th><th>녹음실</th><th>예약시간</th><th>닉네임</th><th>전화 끝4자리</th><th>사유</th><th>관리</th></tr></thead>
+          <thead><tr><th>상태</th><th>연습실</th><th>예약시간</th><th>닉네임</th><th>전화 끝4자리</th><th>사유</th><th>관리</th></tr></thead>
           <tbody id="reservations"></tbody>
         </table>
       </div>
@@ -838,7 +838,7 @@
       <h2>예약 수정</h2>
       <input id="editReservationId" type="hidden">
       <div class="field">
-        <label class="muted">녹음실</label>
+        <label class="muted">연습실</label>
         <select id="editReservationRoom"></select>
       </div>
       <div class="field" style="margin-top:10px">
@@ -868,8 +868,8 @@
     <section class="card">
       <div class="status-toolbar">
         <div>
-          <h2 style="margin-bottom:4px">녹음실 현황</h2>
-          <div class="muted">선택한 날짜의 녹음실별 시간대 예약 현황을 확인합니다.</div>
+          <h2 style="margin-bottom:4px">연습실 현황</h2>
+          <div class="muted">선택한 날짜의 연습실별 시간대 예약 현황을 확인합니다.</div>
         </div>
         <button type="button" onclick="loadAll()">새로고침</button>
       </div>
@@ -1047,7 +1047,7 @@
   <section id="tab-backup" class="tab-panel">
     <section class="card">
       <h2>백업/복원</h2>
-      <div class="muted">현재 로그인한 학원의 회원, 카테고리, 녹음실, 운영시간, 예약, 예약불가, 연습일지 등 운영데이터만 ZIP으로 백업합니다. 학원명, 활성상태, 최초 관리자 정보와 관리자 비밀번호는 포함하지 않습니다.</div>
+      <div class="muted">현재 로그인한 학원의 회원, 카테고리, 연습실, 운영시간, 예약, 예약불가, 연습일지 등 운영데이터만 ZIP으로 백업합니다. 학원명, 활성상태, 최초 관리자 정보와 관리자 비밀번호는 포함하지 않습니다.</div>
       <div class="row" style="margin-top:14px">
         <button type="button" class="primary" onclick="downloadOperationalBackup()">ZIP 백업</button>
         <button type="button" onclick="startOperationalRestore()">ZIP 복원</button>
@@ -1384,7 +1384,7 @@ function renderRoomStatus() {
           <div class="room-status-hours">${hourHtml}</div>
         </div>
       </div>`;
-  }).join('') || '<div class="usage-empty">등록된 녹음실이 없습니다.</div>';
+  }).join('') || '<div class="usage-empty">등록된 연습실이 없습니다.</div>';
 }
 
 function monthKeyFromISO(iso) {
@@ -1502,7 +1502,7 @@ function renderReservations() {
   document.getElementById('reservations').innerHTML = rows.map(r=>`
     <tr>
       <td data-label="상태"><span class="badge">${escapeHtml(r.status)}</span></td>
-      <td data-label="녹음실">${escapeHtml(reservationRoomMap[r.room_id]||('녹음실 #'+r.room_id))}</td>
+      <td data-label="연습실">${escapeHtml(reservationRoomMap[r.room_id]||('연습실 #'+r.room_id))}</td>
       <td data-label="예약시간">${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
       <td data-label="예약자">${escapeHtml(r.nickname)}</td>
       <td data-label="전화 끝 4자리">${escapeHtml(r.phone_last4)}</td>
@@ -1597,7 +1597,7 @@ async function createRoom() {
   const advance_booking_enabled = document.getElementById('newRoomAdvanceEnabled').checked;
   const advance_booking_open_hour = Number(document.getElementById('newRoomAdvanceOpenHour').value);
   const advance_booking_days = Number(document.getElementById('newRoomAdvanceDays').value);
-  if (!name) return alert('녹음실 이름을 입력해 주세요.');
+  if (!name) return alert('연습실 이름을 입력해 주세요.');
   if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간은 0~23 사이로 입력해 주세요.');
   if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간은 1~24 사이로 입력해 주세요.');
   if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
@@ -1633,7 +1633,7 @@ function hourSelectOptions(start, end, selected) {
 
 function openRoomEditor(id) {
   const room = rooms.find(r => r.id === id);
-  if (!room) return alert('녹음실 정보를 찾을 수 없습니다.');
+  if (!room) return alert('연습실 정보를 찾을 수 없습니다.');
 
   const openHour = room.open_hour ?? 0;
   const closeHour = room.close_hour ?? 24;
@@ -1667,8 +1667,8 @@ async function saveRoomEdit() {
   const advance_booking_open_hour = Number(document.getElementById('editRoomAdvanceOpenHour').value);
   const advance_booking_days = Number(document.getElementById('editRoomAdvanceDays').value);
 
-  if (!id) return alert('녹음실 정보를 찾을 수 없습니다.');
-  if (!name) return alert('녹음실 이름을 입력해 주세요.');
+  if (!id) return alert('연습실 정보를 찾을 수 없습니다.');
+  if (!name) return alert('연습실 이름을 입력해 주세요.');
   if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간을 확인해 주세요.');
   if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간을 확인해 주세요.');
   if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
@@ -1718,7 +1718,7 @@ async function createBlock() {
   const reason = document.getElementById('blockReason').value.trim() || null;
   const groups = selectedBlockHourGroups();
 
-  if (!room_id) return alert('녹음실을 선택해 주세요.');
+  if (!room_id) return alert('연습실을 선택해 주세요.');
   if (!dateValue) return alert('날짜를 선택해 주세요.');
   if (!groups.length) return alert('예약불가 시간을 한 개 이상 선택해 주세요.');
 
@@ -2101,7 +2101,7 @@ async function submitMemberReservation() {
   const dateKey = document.getElementById('memberReservationDate').value;
   const roomId = Number(document.getElementById('memberReservationRoom').value);
   const hours = Array.from(selectedMemberReservationHours).sort((a,b)=>a-b);
-  if (!dateKey || !roomId) return alert('날짜와 녹음실을 선택해 주세요.');
+  if (!dateKey || !roomId) return alert('날짜와 연습실을 선택해 주세요.');
   if (!hours.length) return alert('예약할 시간을 선택해 주세요.');
 
   const contiguous = hours.every((value,index) => index === 0 || value === hours[index-1] + 1);
@@ -2329,7 +2329,7 @@ async function loadPracticeSelectedUser() {
         <div class="practice-log-head">
           <div>
             <div class="practice-log-date">${practiceDateText(row.start_at)}</div>
-            <div class="practice-log-time">${escapeHtml(row.room_name || '녹음실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</div>
+            <div class="practice-log-time">${escapeHtml(row.room_name || '연습실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</div>
           </div>
           <button type="button" onclick='openAdminPracticeJournalEdit(${JSON.stringify(row.id)})'>수정</button>
         </div>
@@ -2369,7 +2369,7 @@ function openAdminPracticeJournalCreate() {
 
   document.getElementById('practiceCreateReservation').innerHTML = practicePendingRows.length
     ? practicePendingRows.map(row => `
-        <option value="${escapeHtml(row.reservation_id)}">${practiceDateText(row.start_at)} · ${escapeHtml(row.room_name || '녹음실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</option>
+        <option value="${escapeHtml(row.reservation_id)}">${practiceDateText(row.start_at)} · ${escapeHtml(row.room_name || '연습실')} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}</option>
       `).join('')
     : '<option value="">등록 가능한 종료 예약이 없습니다.</option>';
 
@@ -2433,7 +2433,7 @@ function openAdminPracticeJournalEdit(journalId) {
   const row = practiceSelectedData?.items?.find(item => item.id === journalId);
   if (!row) return alert('연습일지를 찾을 수 없습니다.');
   document.getElementById('practiceEditId').value = row.id;
-  document.getElementById('practiceEditReservationInfo').textContent = `${practiceDateText(row.start_at)} · ${row.room_name || '녹음실'} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}`;
+  document.getElementById('practiceEditReservationInfo').textContent = `${practiceDateText(row.start_at)} · ${row.room_name || '연습실'} · ${practiceTimeText(row.start_at,row.end_at)} · ${practiceHoursText(row.duration_hours)}`;
   document.getElementById('practiceEditContent').value = row.content || '';
   document.getElementById('practiceEditModal').classList.add('active');
 }
@@ -2569,7 +2569,7 @@ async function loadAll() {
             <button class="danger" onclick='deleteRoom(${r.id}, ${JSON.stringify(r.name)})'>삭제</button>
           </div>
         </div>
-      </div>`).join('') || '<div class="muted">등록된 녹음실이 없습니다.</div>';
+      </div>`).join('') || '<div class="muted">등록된 연습실이 없습니다.</div>';
 
     const blockRoom = document.getElementById('blockRoom');
     const previousBlockRoom = blockRoom.value;
@@ -2582,7 +2582,7 @@ async function loadAll() {
     blockRows = await api('/api/admin/blocks');
     document.getElementById('blocks').innerHTML = blockRows.slice(0,20).map(b=>`
       <div class="room">
-        <strong>${escapeHtml(roomMap[b.room_id]||('녹음실 #'+b.room_id))}</strong>
+        <strong>${escapeHtml(roomMap[b.room_id]||('연습실 #'+b.room_id))}</strong>
         <div class="muted">${fmt(b.start_at)} ~ ${fmt(b.end_at)} · ${escapeHtml(b.reason||'사유 없음')}</div>
         <div class="row"><button class="danger" onclick='deleteBlock(${JSON.stringify(b.id)})'>해제</button></div>
       </div>`).join('') || '<div class="muted">예약불가 지정이 없습니다.</div>';

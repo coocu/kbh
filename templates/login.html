@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>녹음실 예약 시스템 관리자</title>
+  <title>연습실 예약 시스템 관리자</title>
   <style>
     :root { color-scheme:light dark; font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Apple SD Gothic Neo",sans-serif; }
     * { box-sizing:border-box; }
@@ -94,7 +94,7 @@
 </head>
 <body>
   <form class="card" method="post" action="/admin/login">
-    <h1>녹음실 예약 시스템</h1>
+    <h1>연습실 예약 시스템</h1>
     <p>학원을 선택한 후 관리자 로그인해 주세요.</p>
 
     {% if password_reset %}
@@ -453,7 +453,7 @@ function openAcademyAction(action, academyId, academyName, isActive = null) {
     title.textContent = '학원 삭제';
     message.textContent =
       `${pendingAcademyAction.academyName}을(를) 삭제하시겠습니까?\n\n` +
-      '해당 학원의 녹음실, 원생/강사, 예약, 예약불가 시간, 관리자 정보가 모두 삭제되며 복구할 수 없습니다.';
+      '해당 학원의 연습실, 원생/강사, 예약, 예약불가 시간, 관리자 정보가 모두 삭제되며 복구할 수 없습니다.';
     confirmButton.textContent = '삭제';
     confirmButton.classList.add('danger');
   }

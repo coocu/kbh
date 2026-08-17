@@ -472,7 +472,7 @@ def _is_within_room_schedule(
 
 def _operating_hours_error(schedule: RoomSchedule | None) -> str:
     open_hour, close_hour = _schedule_values(schedule)
-    return f"이 녹음실의 운영시간은 {open_hour:02d}:00 ~ {close_hour:02d}:00입니다."
+    return f"이 연습실의 운영시간은 {open_hour:02d}:00 ~ {close_hour:02d}:00입니다."
 
 
 def _current_booking_hour_start(now: datetime) -> datetime:
@@ -518,7 +518,7 @@ def _enforce_member_room_booking_window(
         enabled, open_hour, days = _advance_booking_values(schedule)
         raise HTTPException(
             status_code=409,
-            detail=f"이 녹음실은 당일 예약만 가능하며, 사전예약은 매일 {open_hour:02d}:00 이후 다음날부터 최대 {days}일치까지 가능합니다.",
+            detail=f"이 연습실은 당일 예약만 가능하며, 사전예약은 매일 {open_hour:02d}:00 이후 다음날부터 최대 {days}일치까지 가능합니다.",
         )
 
 
@@ -902,7 +902,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="녹음실 예약 시스템 서버",
+    title="연습실 예약 시스템 서버",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -1379,11 +1379,11 @@ def create_reservation(
             .with_for_update()
         )
         if room is None:
-            raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
         if room.is_paused:
             raise HTTPException(
                 status_code=409,
-                detail=room.pause_reason or "현재 이 녹음실은 일시 사용중지 상태입니다.",
+                detail=room.pause_reason or "현재 이 연습실은 일시 사용중지 상태입니다.",
             )
 
         schedule = _get_room_schedule(db, room, create=False)
@@ -1476,10 +1476,10 @@ def update_my_reservation(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """예약 시작 전 본인 예약의 녹음실/날짜/시간을 변경한다.
+    """예약 시작 전 본인 예약의 연습실/날짜/시간을 변경한다.
 
     기존 예약 1건을 수정하므로 기존 예약은 충돌/회원시간 계산에서 제외한다.
-    이용이 시작된 뒤에는 기존 '남은 시간 녹음실 이동' / '이용 종료' 기능을 사용한다.
+    이용이 시작된 뒤에는 기존 '남은 시간 연습실 이동' / '이용 종료' 기능을 사용한다.
     """
     auth = require_app_token(request)
     academy_id = auth["academy_id"]
@@ -1506,7 +1506,7 @@ def update_my_reservation(
         if _aware_utc(row.start_at) <= current:
             raise HTTPException(
                 status_code=409,
-                detail="이미 시작된 예약은 시간을 변경할 수 없습니다. 이용 중에는 남은 시간 녹음실 이동 또는 이용 종료를 이용해 주세요.",
+                detail="이미 시작된 예약은 시간을 변경할 수 없습니다. 이용 중에는 남은 시간 연습실 이동 또는 이용 종료를 이용해 주세요.",
             )
 
         room_id = payload.room_id if payload.room_id is not None else row.room_id
@@ -1537,9 +1537,9 @@ def update_my_reservation(
             .with_for_update()
         )
         if room is None:
-            raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
         if room.is_paused:
-            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 녹음실은 현재 사용중지 상태입니다.")
+            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 연습실은 현재 사용중지 상태입니다.")
 
         schedule = _get_room_schedule(db, room, create=False)
         _enforce_member_room_booking_window(start, end, schedule, current)
@@ -1621,7 +1621,7 @@ def move_my_reservation(
             raise HTTPException(status_code=409, detail="이미 종료된 예약은 이동할 수 없습니다.")
 
         # 예약 시작 전이면 기존처럼 예약 전체를 이동한다.
-        # 이미 이용 중이면 '지금부터 종료시간까지' 남은 구간만 새 녹음실로 이동한다.
+        # 이미 이용 중이면 '지금부터 종료시간까지' 남은 구간만 새 연습실로 이동한다.
         move_start = reservation_start if current < reservation_start else current
 
         if payload.room_id == reservation.room_id:
@@ -1646,9 +1646,9 @@ def move_my_reservation(
             .with_for_update()
         )
         if room is None:
-            raise HTTPException(status_code=404, detail="이동할 녹음실을 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail="이동할 연습실을 찾을 수 없습니다.")
         if room.is_paused:
-            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 녹음실은 현재 사용중지 상태입니다.")
+            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 연습실은 현재 사용중지 상태입니다.")
 
         schedule = _get_room_schedule(db, room, create=False)
         if not _is_within_room_schedule(move_start, reservation_end, schedule):
@@ -1665,7 +1665,7 @@ def move_my_reservation(
             )
         )
         if conflict_reservation:
-            raise HTTPException(status_code=409, detail="이동하려는 녹음실에 남은 이용시간과 겹치는 예약이 있습니다.")
+            raise HTTPException(status_code=409, detail="이동하려는 연습실에 남은 이용시간과 겹치는 예약이 있습니다.")
 
         conflict_block = db.scalar(
             select(UnavailableBlock).where(
@@ -1676,16 +1676,16 @@ def move_my_reservation(
             )
         )
         if conflict_block:
-            raise HTTPException(status_code=409, detail="이동하려는 녹음실은 남은 이용시간 중 예약불가 시간이 있습니다.")
+            raise HTTPException(status_code=409, detail="이동하려는 연습실은 남은 이용시간 중 예약불가 시간이 있습니다.")
 
         if current < reservation_start:
-            # 아직 시작 전: 기존 예약의 녹음실만 변경.
+            # 아직 시작 전: 기존 예약의 연습실만 변경.
             reservation.room_id = room.id
             db.commit()
             db.refresh(reservation)
             moved_reservation = reservation
         else:
-            # 이용 중: 현재 녹음실의 사용 이력은 보존하고 현재 시각에서 예약을 분리한다.
+            # 이용 중: 현재 연습실의 사용 이력은 보존하고 현재 시각에서 예약을 분리한다.
             original_end = reservation.end_at
             reservation.end_at = move_start
 
@@ -2418,11 +2418,11 @@ def admin_create_member_reservation(
             .with_for_update()
         )
         if room is None:
-            raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
         if room.is_paused:
             raise HTTPException(
                 status_code=409,
-                detail=room.pause_reason or "현재 이 녹음실은 일시 사용중지 상태입니다.",
+                detail=room.pause_reason or "현재 이 연습실은 일시 사용중지 상태입니다.",
             )
 
         schedule = _get_room_schedule(db, room, create=False)
@@ -2777,7 +2777,7 @@ def _validate_operational_backup(payload: dict) -> dict:
 
     category_ids = source_ids(categories, "카테고리")
     user_ids = source_ids(users, "회원")
-    room_ids = source_ids(rooms, "녹음실")
+    room_ids = source_ids(rooms, "연습실")
     reservation_ids = source_ids(reservations, "예약")
     source_ids(blocks, "예약불가")
     source_ids(journals, "연습일지")
@@ -2807,28 +2807,28 @@ def _validate_operational_backup(payload: dict) -> dict:
 
     for row in rooms:
         if not str(row.get("name", "")).strip():
-            raise HTTPException(status_code=422, detail="백업 파일의 녹음실 이름이 올바르지 않습니다.")
-        _backup_datetime(row.get("created_at"), "녹음실 생성일")
-        _backup_datetime(row.get("updated_at"), "녹음실 수정일")
+            raise HTTPException(status_code=422, detail="백업 파일의 연습실 이름이 올바르지 않습니다.")
+        _backup_datetime(row.get("created_at"), "연습실 생성일")
+        _backup_datetime(row.get("updated_at"), "연습실 수정일")
 
     for row in schedules:
         if str(row.get("room_source_id")) not in room_ids:
-            raise HTTPException(status_code=422, detail="백업 파일의 녹음실 운영시간 연결정보가 올바르지 않습니다.")
+            raise HTTPException(status_code=422, detail="백업 파일의 연습실 운영시간 연결정보가 올바르지 않습니다.")
         open_hour = row.get("open_hour")
         close_hour = row.get("close_hour")
         if not isinstance(open_hour, int) or not isinstance(close_hour, int) or not (0 <= open_hour <= 23) or not (1 <= close_hour <= 24) or close_hour <= open_hour:
-            raise HTTPException(status_code=422, detail="백업 파일의 녹음실 운영시간이 올바르지 않습니다.")
+            raise HTTPException(status_code=422, detail="백업 파일의 연습실 운영시간이 올바르지 않습니다.")
         advance_open_hour = row.get("advance_booking_open_hour", 20)
         advance_days = row.get("advance_booking_days", 1)
         if not isinstance(advance_open_hour, int) or not (0 <= advance_open_hour <= 23):
             raise HTTPException(status_code=422, detail="백업 파일의 사전예약 오픈시간이 올바르지 않습니다.")
         if not isinstance(advance_days, int) or not (1 <= advance_days <= 90):
             raise HTTPException(status_code=422, detail="백업 파일의 사전예약 일수가 올바르지 않습니다.")
-        _backup_datetime(row.get("updated_at"), "녹음실 운영시간 수정일")
+        _backup_datetime(row.get("updated_at"), "연습실 운영시간 수정일")
 
     for row in reservations:
         if str(row.get("room_source_id")) not in room_ids:
-            raise HTTPException(status_code=422, detail="백업 파일의 예약 녹음실 연결정보가 올바르지 않습니다.")
+            raise HTTPException(status_code=422, detail="백업 파일의 예약 연습실 연결정보가 올바르지 않습니다.")
         start_at = _backup_datetime(row.get("start_at"), "예약 시작시간")
         end_at = _backup_datetime(row.get("end_at"), "예약 종료시간")
         if end_at <= start_at:
@@ -2838,7 +2838,7 @@ def _validate_operational_backup(payload: dict) -> dict:
 
     for row in blocks:
         if str(row.get("room_source_id")) not in room_ids:
-            raise HTTPException(status_code=422, detail="백업 파일의 예약불가 녹음실 연결정보가 올바르지 않습니다.")
+            raise HTTPException(status_code=422, detail="백업 파일의 예약불가 연습실 연결정보가 올바르지 않습니다.")
         start_at = _backup_datetime(row.get("start_at"), "예약불가 시작시간")
         end_at = _backup_datetime(row.get("end_at"), "예약불가 종료시간")
         if end_at <= start_at:
@@ -3021,7 +3021,7 @@ async def admin_restore_backup(
     academy_id = _admin_academy_id(request)
     filename = (file.filename or "").lower()
     if not filename.endswith(".zip"):
-        raise HTTPException(status_code=422, detail="우리의 녹음실 백업 ZIP 파일을 선택해 주세요.")
+        raise HTTPException(status_code=422, detail="뮤싱크 백업 ZIP 파일을 선택해 주세요.")
 
     raw = await file.read(BACKUP_MAX_UPLOAD_BYTES + 1)
     if not raw:
@@ -3034,7 +3034,7 @@ async def admin_restore_backup(
         with zipfile.ZipFile(io.BytesIO(raw), "r") as archive:
             names = set(archive.namelist())
             if "manifest.json" not in names or "data.json" not in names:
-                raise HTTPException(status_code=422, detail="우리의 녹음실 백업 파일 형식이 아닙니다.")
+                raise HTTPException(status_code=422, detail="뮤싱크 백업 파일 형식이 아닙니다.")
             manifest = json.loads(archive.read("manifest.json").decode("utf-8"))
             payload = json.loads(archive.read("data.json").decode("utf-8"))
     except HTTPException:
@@ -3101,8 +3101,8 @@ async def admin_restore_backup(
                 is_paused=bool(source.get("is_paused", False)),
                 pause_reason=source.get("pause_reason"),
                 is_deleted=bool(source.get("is_deleted", False)),
-                created_at=_backup_datetime(source["created_at"], "녹음실 생성일"),
-                updated_at=_backup_datetime(source["updated_at"], "녹음실 수정일"),
+                created_at=_backup_datetime(source["created_at"], "연습실 생성일"),
+                updated_at=_backup_datetime(source["updated_at"], "연습실 수정일"),
             )
             db.add(row)
             db.flush()
@@ -3117,7 +3117,7 @@ async def admin_restore_backup(
                 advance_booking_enabled=bool(source.get("advance_booking_enabled", False)),
                 advance_booking_open_hour=int(source.get("advance_booking_open_hour", 20)),
                 advance_booking_days=int(source.get("advance_booking_days", 1)),
-                updated_at=_backup_datetime(source["updated_at"], "녹음실 운영시간 수정일"),
+                updated_at=_backup_datetime(source["updated_at"], "연습실 운영시간 수정일"),
             ))
 
         reservation_map: dict[str, str] = {}
@@ -3273,7 +3273,7 @@ def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depen
             db.refresh(existing)
             db.refresh(schedule)
             return room_dict(existing, schedule)
-        raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
+        raise HTTPException(status_code=409, detail="이미 같은 이름의 연습실이 있습니다.")
 
     room = Room(academy_id=academy_id, name=name)
     db.add(room)
@@ -3294,7 +3294,7 @@ def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depen
         db.refresh(schedule)
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
+        raise HTTPException(status_code=409, detail="이미 같은 이름의 연습실이 있습니다.")
     return room_dict(room, schedule)
 
 
@@ -3314,7 +3314,7 @@ def admin_update_room(
         )
     )
     if room is None:
-        raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
 
     if payload.name is not None:
         room.name = payload.name.strip()
@@ -3344,7 +3344,7 @@ def admin_update_room(
         db.refresh(schedule)
     except IntegrityError:
         db.rollback()
-        raise HTTPException(status_code=409, detail="이미 같은 이름의 녹음실이 있습니다.")
+        raise HTTPException(status_code=409, detail="이미 같은 이름의 연습실이 있습니다.")
     return room_dict(room, schedule)
 
 
@@ -3359,7 +3359,7 @@ def admin_delete_room(room_id: int, request: Request, db: Session = Depends(get_
         )
     )
     if room is None:
-        raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
     room.is_deleted = True
     room.is_paused = True
     db.commit()
@@ -3425,9 +3425,9 @@ def admin_update_reservation(
             .with_for_update()
         )
         if room is None:
-            raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+            raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
         if room.is_paused:
-            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 녹음실은 현재 사용중지 상태입니다.")
+            raise HTTPException(status_code=409, detail=room.pause_reason or "해당 연습실은 현재 사용중지 상태입니다.")
 
         schedule = _get_room_schedule(db, room, create=False)
         if not _is_within_room_schedule(start, end, schedule):
@@ -3557,7 +3557,7 @@ def admin_create_block(payload: BlockCreate, request: Request, db: Session = Dep
     )
     if room is None:
         db.rollback()
-        raise HTTPException(status_code=404, detail="녹음실을 찾을 수 없습니다.")
+        raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
 
     existing_reservation = db.scalar(
         select(Reservation).where(
