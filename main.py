@@ -175,6 +175,39 @@ LEGACY_ACADEMY_NAME = os.getenv("ACADEMY_NAME", "킴스보컬미디학원").stri
 LEGACY_RECOVERY_NAME = os.getenv("ADMIN_RECOVERY_NAME", "김병현").strip() or "김병현"
 LEGACY_RECOVERY_PHONE_LAST4 = os.getenv("ADMIN_RECOVERY_PHONE_LAST4", "0667").strip() or "0667"
 
+# 2026-08 기준 대한민국 시·도 / 시·군·구 목록.
+# 학원 등록/수정 화면에서 항상 전체 지역을 선택할 수 있게 한다.
+KOREA_REGION_DISTRICTS: dict[str, list[str]] = {
+    "서울특별시": ["종로구", "중구", "용산구", "성동구", "광진구", "동대문구", "중랑구", "성북구", "강북구", "도봉구", "노원구", "은평구", "서대문구", "마포구", "양천구", "강서구", "구로구", "금천구", "영등포구", "동작구", "관악구", "서초구", "강남구", "송파구", "강동구"],
+    "부산광역시": ["중구", "서구", "동구", "영도구", "부산진구", "동래구", "남구", "북구", "해운대구", "사하구", "금정구", "강서구", "연제구", "수영구", "사상구", "기장군"],
+    "대구광역시": ["중구", "동구", "서구", "남구", "북구", "수성구", "달서구", "달성군", "군위군"],
+    "인천광역시": ["계양구", "남동구", "미추홀구", "부평구", "연수구", "제물포구", "영종구", "서구", "검단구", "강화군", "옹진군"],
+    "광주광역시": ["동구", "서구", "남구", "북구", "광산구"],
+    "대전광역시": ["동구", "중구", "서구", "유성구", "대덕구"],
+    "울산광역시": ["중구", "남구", "동구", "북구", "울주군"],
+    "세종특별자치시": ["세종특별자치시"],
+    "경기도": ["수원시", "용인시", "고양시", "화성시", "성남시", "부천시", "남양주시", "안산시", "평택시", "안양시", "시흥시", "파주시", "김포시", "의정부시", "광주시", "하남시", "광명시", "군포시", "양주시", "오산시", "이천시", "안성시", "구리시", "의왕시", "포천시", "여주시", "동두천시", "과천시", "가평군", "양평군", "연천군"],
+    "강원특별자치도": ["춘천시", "원주시", "강릉시", "동해시", "태백시", "속초시", "삼척시", "홍천군", "횡성군", "영월군", "평창군", "정선군", "철원군", "화천군", "양구군", "인제군", "고성군", "양양군"],
+    "충청북도": ["청주시", "충주시", "제천시", "보은군", "옥천군", "영동군", "증평군", "진천군", "괴산군", "음성군", "단양군"],
+    "충청남도": ["천안시", "공주시", "보령시", "아산시", "서산시", "논산시", "계룡시", "당진시", "금산군", "부여군", "서천군", "청양군", "홍성군", "예산군", "태안군"],
+    "전북특별자치도": ["전주시", "군산시", "익산시", "정읍시", "남원시", "김제시", "완주군", "진안군", "무주군", "장수군", "임실군", "순창군", "고창군", "부안군"],
+    "전라남도": ["목포시", "여수시", "순천시", "나주시", "광양시", "담양군", "곡성군", "구례군", "고흥군", "보성군", "화순군", "장흥군", "강진군", "해남군", "영암군", "무안군", "함평군", "영광군", "장성군", "완도군", "진도군", "신안군"],
+    "경상북도": ["포항시", "경주시", "김천시", "안동시", "구미시", "영주시", "영천시", "상주시", "문경시", "경산시", "의성군", "청송군", "영양군", "영덕군", "청도군", "고령군", "성주군", "칠곡군", "예천군", "봉화군", "울진군", "울릉군"],
+    "경상남도": ["창원시", "진주시", "통영시", "사천시", "김해시", "밀양시", "거제시", "양산시", "의령군", "함안군", "창녕군", "고성군", "남해군", "하동군", "산청군", "함양군", "거창군", "합천군"],
+    "제주특별자치도": ["제주시", "서귀포시"],
+}
+
+
+def _validate_academy_location(region: str, district: str) -> tuple[str, str]:
+    region = region.strip()
+    district = district.strip()
+    if region not in KOREA_REGION_DISTRICTS:
+        raise HTTPException(status_code=422, detail="지역을 선택해 주세요.")
+    if district not in KOREA_REGION_DISTRICTS[region]:
+        raise HTTPException(status_code=422, detail="선택한 지역에 맞는 시·군·구를 선택해 주세요.")
+    return region, district
+
+
 BOOKING_TIMEZONE_NAME = os.getenv("BOOKING_TIMEZONE", "Asia/Seoul").strip() or "Asia/Seoul"
 BOOKING_TIMEZONE = ZoneInfo(BOOKING_TIMEZONE_NAME)
 
@@ -399,11 +432,22 @@ def room_dict(room: Room, schedule: RoomSchedule | None = None) -> dict:
 
 
 def academy_dict(academy: Academy) -> dict:
-    return {"id": academy.id, "name": academy.name}
+    return {
+        "id": academy.id,
+        "name": academy.name,
+        "region": academy.region,
+        "district": academy.district,
+    }
 
 
 def academy_management_dict(academy: Academy) -> dict:
-    return {"id": academy.id, "name": academy.name, "is_active": bool(academy.is_active)}
+    return {
+        "id": academy.id,
+        "name": academy.name,
+        "region": academy.region,
+        "district": academy.district,
+        "is_active": bool(academy.is_active),
+    }
 
 
 def category_dict(row: MemberCategory) -> dict:
@@ -787,6 +831,29 @@ def _has_legacy_data(db: Session, tables: set[str]) -> bool:
     return False
 
 
+def _ensure_academy_location_columns() -> None:
+    """기존 학원 데이터를 유지한 채 위치 컬럼만 안전하게 추가한다."""
+    inspector = inspect(engine)
+    if "academies" not in set(inspector.get_table_names()):
+        return
+
+    existing_columns = {
+        column["name"]
+        for column in inspector.get_columns("academies")
+    }
+    statements: list[str] = []
+    if "region" not in existing_columns:
+        statements.append("ALTER TABLE academies ADD COLUMN region VARCHAR(30)")
+    if "district" not in existing_columns:
+        statements.append("ALTER TABLE academies ADD COLUMN district VARCHAR(60)")
+
+    if not statements:
+        return
+    with engine.begin() as connection:
+        for statement in statements:
+            connection.execute(text(statement))
+
+
 def _ensure_room_schedule_advance_columns() -> None:
     """기존 Render DB의 운영시간 테이블에 사전예약 컬럼만 안전하게 추가한다."""
     inspector = inspect(engine)
@@ -934,6 +1001,7 @@ def _migrate_legacy_single_academy():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _ensure_academy_location_columns()
     _ensure_room_schedule_advance_columns()
     _migrate_legacy_single_academy()
 
@@ -997,12 +1065,15 @@ def register_academy(payload: AcademyCreateRequest, db: Session = Depends(get_db
 
     academy_name = payload.academy_name.strip()
     recovery_name = payload.recovery_name.strip()
+    region, district = _validate_academy_location(payload.region, payload.district)
 
     if db.scalar(select(Academy).where(Academy.name == academy_name)) is not None:
         raise HTTPException(status_code=409, detail="이미 등록된 학원 이름입니다.")
 
     academy = Academy(
         name=academy_name,
+        region=region,
+        district=district,
         recovery_name=recovery_name,
         recovery_phone_last4=payload.recovery_phone_last4,
     )
@@ -1085,15 +1156,27 @@ def update_academy(payload: AcademyUpdateRequest, db: Session = Depends(get_db))
 
     if not new_name:
         raise HTTPException(status_code=422, detail="학원 이름을 입력해 주세요.")
-    if academy.name == new_name:
-        return academy_management_dict(academy)
     if db.scalar(select(Academy).where(Academy.name == new_name, Academy.id != academy.id)) is not None:
         raise HTTPException(status_code=409, detail="이미 등록된 학원 이름입니다.")
 
+    # 기존 이름수정 API 호출도 깨지지 않게 지역값은 둘 다 전달된 경우에만 변경한다.
+    new_region = academy.region
+    new_district = academy.district
+    if payload.region is not None or payload.district is not None:
+        if payload.region is None or payload.district is None:
+            raise HTTPException(status_code=422, detail="지역과 시·군·구를 모두 선택해 주세요.")
+        new_region, new_district = _validate_academy_location(payload.region, payload.district)
+
+    if academy.name == new_name and academy.region == new_region and academy.district == new_district:
+        return academy_management_dict(academy)
+
     old_name = academy.name
     academy.name = new_name
+    academy.region = new_region
+    academy.district = new_district
     try:
-        _delete_legacy_academy_data_if_needed(db, old_name)
+        if old_name != new_name:
+            _delete_legacy_academy_data_if_needed(db, old_name)
         db.commit()
         db.refresh(academy)
     except IntegrityError:
@@ -2022,6 +2105,7 @@ def admin_page(request: Request, db: Session = Depends(get_db)):
                 "login_error": request.query_params.get("error") == "1",
                 "password_reset": request.query_params.get("reset") == "1",
                 "reauth": request.query_params.get("reauth") == "1",
+                "korea_region_districts": KOREA_REGION_DISTRICTS,
             },
         )
 

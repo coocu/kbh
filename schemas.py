@@ -32,6 +32,8 @@ class AcademyRegistrationVerifyRequest(BaseModel):
 
 class AcademyCreateRequest(BaseModel):
     registration_token: str = Field(min_length=1)
+    region: str = Field(min_length=1, max_length=30)
+    district: str = Field(min_length=1, max_length=60)
     academy_name: str = Field(min_length=1, max_length=100)
     recovery_name: str = Field(min_length=1, max_length=40)
     recovery_phone_last4: str
@@ -56,6 +58,8 @@ class AcademyUpdateRequest(BaseModel):
     registration_token: str = Field(min_length=1)
     academy_id: int
     academy_name: str = Field(min_length=1, max_length=100)
+    region: str | None = Field(default=None, min_length=1, max_length=30)
+    district: str | None = Field(default=None, min_length=1, max_length=60)
 
 
 class AcademyStatusRequest(BaseModel):
