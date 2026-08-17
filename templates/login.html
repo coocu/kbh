@@ -47,6 +47,10 @@
     .academy-location-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .academy-location-row select { min-width:0; }
     .academy-action-fields.hidden { display:none; }
+    .academy-search-results { max-height:210px; overflow:auto; margin:-4px 0 12px; border:1px solid color-mix(in srgb,CanvasText 18%,transparent); border-radius:14px; padding:6px; }
+    .academy-search-result { display:block; width:100%; text-align:left; border:0; border-radius:10px; padding:10px 11px; background:transparent; color:CanvasText; font-size:15px; }
+    .academy-search-result:hover { background:color-mix(in srgb,CanvasText 8%,transparent); }
+    .academy-search-result small { display:block; margin-top:3px; opacity:.62; font-size:12px; }
 
     /* 모바일 학원관리 버튼만 컴팩트하게 표시 */
     @media (max-width:600px) {
@@ -110,10 +114,18 @@
       <div class="notice error">관리자 로그인이 만료되었습니다. 다시 로그인해 주세요.</div>
     {% endif %}
 
-    <select id="academySelect" name="academy_id" required>
+    <input id="academySearch" autocomplete="off" placeholder="학원 검색" oninput="filterLoginAcademies()">
+    <div id="academySearchResults" class="academy-search-results hidden"></div>
+
+    <div class="academy-location-row">
+      <select id="loginRegion" aria-label="지역" onchange="onLoginRegionChange()"></select>
+      <select id="loginDistrict" aria-label="시·군·구" onchange="onLoginDistrictChange()"></select>
+    </div>
+
+    <select id="academySelect" name="academy_id" required onchange="onLoginAcademySelectChange()">
       <option value="">학원 선택</option>
       {% for academy in academies %}
-        <option value="{{ academy.id }}" {% if selected_academy_id|string == academy.id|string %}selected{% endif %}>{{ academy.name }}</option>
+        <option value="{{ academy.id }}" data-region="{{ academy.region or '' }}" data-district="{{ academy.district or '' }}" {% if selected_academy_id|string == academy.id|string %}selected{% endif %}>{{ academy.name }}</option>
       {% endfor %}
     </select>
 
@@ -222,6 +234,138 @@ const REGION_LABELS = {
   '전북특별자치도':'전북', '전라남도':'전남', '경상북도':'경북', '경상남도':'경남',
   '제주특별자치도':'제주'
 };
+
+const LOGIN_INITIAL_ACADEMIES = [
+  {% for academy in academies %}
+  {id:{{ academy.id }}, name:{{ academy.name | tojson }}, region:{{ (academy.region or '') | tojson }}, district:{{ (academy.district or '') | tojson }}},
+  {% endfor %}
+];
+let loginAcademies = LOGIN_INITIAL_ACADEMIES.slice();
+
+function loginAcademyById(id) {
+  return loginAcademies.find(row => String(row.id) === String(id)) || null;
+}
+
+function populateLoginRegions(selectedRegion = '', selectedDistrict = '') {
+  const regionSelect = document.getElementById('loginRegion');
+  const used = new Set(loginAcademies.filter(row => row.region && row.district).map(row => row.region));
+  const regions = Object.keys(KOREA_REGION_DISTRICTS).filter(region => used.has(region));
+  regionSelect.innerHTML = '<option value="">지역 선택</option>' + regions.map(region =>
+    `<option value="${escapeHtml(region)}">${escapeHtml(REGION_LABELS[region] || region)}</option>`
+  ).join('');
+  if (selectedRegion && regions.includes(selectedRegion)) regionSelect.value = selectedRegion;
+  populateLoginDistricts(selectedDistrict);
+}
+
+function populateLoginDistricts(selectedDistrict = '') {
+  const region = document.getElementById('loginRegion').value;
+  const districtSelect = document.getElementById('loginDistrict');
+  const used = new Set(loginAcademies.filter(row => row.region === region && row.district).map(row => row.district));
+  const districts = (KOREA_REGION_DISTRICTS[region] || []).filter(district => used.has(district));
+  districtSelect.innerHTML = '<option value="">시·군·구 선택</option>' + districts.map(district =>
+    `<option value="${escapeHtml(district)}">${escapeHtml(district)}</option>`
+  ).join('');
+  districtSelect.disabled = !region;
+  if (selectedDistrict && districts.includes(selectedDistrict)) districtSelect.value = selectedDistrict;
+}
+
+function currentLoginRows() {
+  const keyword = document.getElementById('academySearch').value.trim().toLocaleLowerCase('ko-KR');
+  const region = document.getElementById('loginRegion').value;
+  const district = document.getElementById('loginDistrict').value;
+  if (keyword) {
+    return loginAcademies.filter(row => String(row.name || '').toLocaleLowerCase('ko-KR').includes(keyword));
+  }
+  if (region && district) {
+    return loginAcademies.filter(row => row.region === region && row.district === district);
+  }
+  return [];
+}
+
+function renderLoginAcademySelect(preserveSelected = true) {
+  const select = document.getElementById('academySelect');
+  const selected = preserveSelected ? select.value : '';
+  let rows = currentLoginRows().slice().sort((a,b)=>a.name.localeCompare(b.name,'ko-KR'));
+  if (!rows.length && selected) {
+    const selectedRow = loginAcademyById(selected);
+    if (selectedRow) rows = [selectedRow];
+  }
+  select.innerHTML = '<option value="">학원 선택</option>' + rows.map(row =>
+    `<option value="${row.id}" data-region="${escapeHtml(row.region || '')}" data-district="${escapeHtml(row.district || '')}">${escapeHtml(row.name)}</option>`
+  ).join('');
+  if (selected && rows.some(row => String(row.id) === String(selected))) select.value = selected;
+}
+
+function renderLoginSearchResults() {
+  const box = document.getElementById('academySearchResults');
+  const keyword = document.getElementById('academySearch').value.trim().toLocaleLowerCase('ko-KR');
+  if (!keyword) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  const rows = loginAcademies
+    .filter(row => String(row.name || '').toLocaleLowerCase('ko-KR').includes(keyword))
+    .sort((a,b)=>a.name.localeCompare(b.name,'ko-KR'));
+  box.innerHTML = rows.length ? rows.map(row => {
+    const location = row.region && row.district ? `${REGION_LABELS[row.region] || row.region} · ${row.district}` : '';
+    return `<button class="academy-search-result" type="button" onclick="selectLoginAcademyById(${row.id})">${escapeHtml(row.name)}${location ? `<small>${escapeHtml(location)}</small>` : ''}</button>`;
+  }).join('') : '<div class="muted" style="padding:8px 10px; margin:0;">검색 결과가 없습니다.</div>';
+  box.classList.remove('hidden');
+}
+
+function filterLoginAcademies() {
+  renderLoginSearchResults();
+  renderLoginAcademySelect(false);
+}
+
+function selectLoginAcademyById(id) {
+  const academy = loginAcademyById(id);
+  if (!academy) return;
+  document.getElementById('academySearch').value = '';
+  document.getElementById('academySearchResults').classList.add('hidden');
+  if (academy.region && academy.district) {
+    populateLoginRegions(academy.region, academy.district);
+  } else {
+    populateLoginRegions();
+  }
+  const select = document.getElementById('academySelect');
+  select.innerHTML = `<option value="${academy.id}" data-region="${escapeHtml(academy.region || '')}" data-district="${escapeHtml(academy.district || '')}">${escapeHtml(academy.name)}</option>`;
+  select.value = String(academy.id);
+}
+
+function onLoginRegionChange() {
+  document.getElementById('academySearch').value = '';
+  document.getElementById('academySearchResults').classList.add('hidden');
+  populateLoginDistricts();
+  document.getElementById('academySelect').value = '';
+  renderLoginAcademySelect(false);
+}
+
+function onLoginDistrictChange() {
+  document.getElementById('academySearch').value = '';
+  document.getElementById('academySearchResults').classList.add('hidden');
+  document.getElementById('academySelect').value = '';
+  renderLoginAcademySelect(false);
+}
+
+function onLoginAcademySelectChange() {
+  const academy = loginAcademyById(document.getElementById('academySelect').value);
+  if (!academy) return;
+  document.getElementById('academySearch').value = '';
+  document.getElementById('academySearchResults').classList.add('hidden');
+  if (academy.region && academy.district) populateLoginRegions(academy.region, academy.district);
+  else populateLoginRegions();
+  renderLoginAcademySelect(true);
+}
+
+function initLoginAcademyFilters() {
+  const selectedId = document.getElementById('academySelect').value;
+  const academy = loginAcademyById(selectedId);
+  if (academy && academy.region && academy.district) populateLoginRegions(academy.region, academy.district);
+  else populateLoginRegions();
+  renderLoginAcademySelect(true);
+}
 
 function populateRegionSelect(regionSelectId, districtSelectId, selectedRegion = '', selectedDistrict = '') {
   const regionSelect = document.getElementById(regionSelectId);
@@ -384,13 +528,14 @@ function escapeHtml(value) {
 }
 
 function syncLoginAcademySelect() {
-  const select = document.getElementById('academySelect');
-  const selected = select.value;
-  const activeRows = managedAcademies.filter(row => row.is_active).sort((a,b)=>a.name.localeCompare(b.name,'ko-KR'));
-  select.innerHTML = '<option value="">학원 선택</option>' + activeRows.map(row =>
-    `<option value="${row.id}">${escapeHtml(row.name)}</option>`
-  ).join('');
-  if (activeRows.some(row => String(row.id) === selected)) select.value = selected;
+  const selected = document.getElementById('academySelect').value;
+  loginAcademies = managedAcademies
+    .filter(row => row.is_active)
+    .map(row => ({id:row.id, name:row.name, region:row.region || '', district:row.district || ''}));
+  const selectedRow = loginAcademyById(selected);
+  if (selectedRow && selectedRow.region && selectedRow.district) populateLoginRegions(selectedRow.region, selectedRow.district);
+  else populateLoginRegions();
+  renderLoginAcademySelect(true);
 }
 
 function setManagementTab(isActive) {
@@ -602,6 +747,8 @@ document.getElementById('registerModal').addEventListener('click', (event) => {
 document.getElementById('deleteAcademyModal').addEventListener('click', (event) => {
   if (event.target.id === 'deleteAcademyModal') closeDeleteAcademy();
 });
+
+document.addEventListener('DOMContentLoaded', initLoginAcademyFilters);
 </script>
 </body>
 </html>
