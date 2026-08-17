@@ -125,6 +125,17 @@
       background:color-mix(in srgb, #30d158 16%, transparent);
       font-size:12px; font-weight:700;
     }
+    .member-category-sortable { transition:transform .12s ease, opacity .12s ease; }
+    .member-category-sortable.category-dragging { opacity:.72; transform:scale(.99); }
+    .category-drag-zone { display:flex; align-items:center; gap:9px; min-width:0; }
+    .category-drag-handle {
+      display:inline-flex; align-items:center; justify-content:center;
+      width:30px; height:30px; border-radius:10px; flex:0 0 auto;
+      font-size:18px; line-height:1; font-weight:800; cursor:grab; user-select:none; -webkit-user-select:none;
+      touch-action:none; background:color-mix(in srgb, CanvasText 7%, transparent);
+    }
+    .category-drag-handle:active { cursor:grabbing; }
+    .category-sort-hint { margin:8px 0 2px; font-size:12px; }
     .member-card-head {
       display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:12px;
     }
@@ -732,6 +743,7 @@
         <input id="categoryName" class="grow" placeholder="예: 취미반, 입시반">
         <button class="primary" onclick="createMemberCategory()">추가</button>
       </div>
+      {% if admin_role == 'admin' %}<div class="muted category-sort-hint">≡ 표시를 길게 누른 뒤 위·아래로 드래그하면 카테고리 순서를 변경할 수 있습니다.</div>{% endif %}
       <div id="memberCategories"></div>
     </div>
   </div>
@@ -1111,6 +1123,7 @@ let reservationRows = [];
 let reservationRoomMap = {};
 let authorizedUserRows = [];
 let memberCategories = [];
+let memberCategoryDragState = null;
 let blockRows = [];
 let selectedBlockHours = new Set();
 let selectedMemberReservationHours = new Set();
@@ -1932,19 +1945,112 @@ function categoryOptions(selectedId=null, includeAll=false) {
   ).join('');
 }
 
+function memberCategoryIdsFromDom() {
+  return Array.from(document.querySelectorAll('#memberCategories .member-category-sortable'))
+    .map(item => Number(item.dataset.categoryId))
+    .filter(Number.isInteger);
+}
+
+async function saveMemberCategoryOrder() {
+  if (adminRole !== 'admin') return;
+  const categoryIds = memberCategoryIdsFromDom();
+  try {
+    await api('/api/admin/categories/reorder', {
+      method:'POST',
+      body:JSON.stringify({category_ids: categoryIds})
+    });
+    await loadMemberCategories();
+  } catch(e) {
+    alert(e.message);
+    await loadMemberCategories();
+  }
+}
+
+function bindMemberCategoryDrag() {
+  if (adminRole !== 'admin') return;
+  const list = document.getElementById('memberCategories');
+  if (!list) return;
+  list.querySelectorAll('.member-category-sortable').forEach(item => {
+    const handle = item.querySelector('.category-drag-handle');
+    if (!handle) return;
+
+    handle.addEventListener('pointerdown', event => {
+      if (event.button !== undefined && event.button !== 0) return;
+      const pointerId = event.pointerId;
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const timer = window.setTimeout(() => {
+        memberCategoryDragState = { item, handle, pointerId, active:true };
+        item.classList.add('category-dragging');
+        try { handle.setPointerCapture(pointerId); } catch (_) {}
+        if (navigator.vibrate) navigator.vibrate(25);
+      }, 420);
+      memberCategoryDragState = { item, handle, pointerId, active:false, timer, startX, startY };
+    });
+
+    handle.addEventListener('pointermove', event => {
+      const state = memberCategoryDragState;
+      if (!state || state.pointerId !== event.pointerId || state.item !== item) return;
+      if (!state.active) {
+        const moved = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+        if (moved > 10) {
+          clearTimeout(state.timer);
+          memberCategoryDragState = null;
+        }
+        return;
+      }
+      event.preventDefault();
+      const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.member-category-sortable');
+      if (!target || target === item || target.parentElement !== list) return;
+      const rect = target.getBoundingClientRect();
+      if (event.clientY < rect.top + rect.height / 2) {
+        list.insertBefore(item, target);
+      } else {
+        list.insertBefore(item, target.nextSibling);
+      }
+    });
+
+    const finish = async event => {
+      const state = memberCategoryDragState;
+      if (!state || state.pointerId !== event.pointerId || state.item !== item) return;
+      clearTimeout(state.timer);
+      const wasActive = state.active;
+      item.classList.remove('category-dragging');
+      try { handle.releasePointerCapture(event.pointerId); } catch (_) {}
+      memberCategoryDragState = null;
+      if (wasActive) {
+        event.preventDefault();
+        await saveMemberCategoryOrder();
+      }
+    };
+    handle.addEventListener('pointerup', finish);
+    handle.addEventListener('pointercancel', event => {
+      const state = memberCategoryDragState;
+      if (!state || state.pointerId !== event.pointerId || state.item !== item) return;
+      clearTimeout(state.timer);
+      item.classList.remove('category-dragging');
+      memberCategoryDragState = null;
+    });
+  });
+}
+
 function renderMemberCategories() {
   const list = document.getElementById('memberCategories');
   if (list) {
     list.innerHTML = memberCategories.map(c=>`
-      <div class="room">
+      <div class="room ${adminRole === 'admin' ? 'member-category-sortable' : ''}" data-category-id="${c.id}">
         <div class="row" style="justify-content:space-between">
-          <strong>${escapeHtml(c.name)}</strong>
+          <div class="category-drag-zone">
+            ${adminRole === 'admin' ? '<span class="category-drag-handle" title="길게 눌러 순서 변경" aria-label="길게 눌러 순서 변경">≡</span>' : ''}
+            <strong>${escapeHtml(c.name)}</strong>
+          </div>
           <div class="row">
             <button onclick='renameMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>수정</button>
             <button class="danger" onclick='deleteMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>삭제</button>
           </div>
         </div>
       </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 카테고리가 없습니다.</div>';
+    bindMemberCategoryDrag();
   }
 
   const createSelect = document.getElementById('userCategory');

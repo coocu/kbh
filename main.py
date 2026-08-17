@@ -65,6 +65,10 @@ from security import (
 )
 
 
+class MemberCategoryOrderPayload(BaseModel):
+    category_ids: list[int]
+
+
 class PracticeJournalCreatePayload(BaseModel):
     content: str = Field(min_length=1, max_length=3000)
 
@@ -104,6 +108,17 @@ class PracticeJournalUpdatePayload(BaseModel):
         if not value:
             raise ValueError("연습일지 내용을 입력해 주세요.")
         return value
+
+
+# 회원 카테고리 표시 순서만 별도 테이블에 저장한다.
+# 기존 카테고리/회원 테이블 구조는 변경하지 않는다.
+member_category_orders_table = Table(
+    "academy_member_category_orders",
+    Base.metadata,
+    Column("category_id", Integer, ForeignKey("academy_member_categories.id", ondelete="CASCADE"), primary_key=True),
+    Column("academy_id", Integer, ForeignKey("academies.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("sort_order", Integer, nullable=False),
+)
 
 
 # 연습일지는 기존 예약/회원/학원 테이블을 변경하지 않고 별도 테이블 하나만 추가한다.
@@ -2222,15 +2237,59 @@ def admin_set_subadmin_password(
     return {"ok": True, "configured": True}
 
 
-@app.get("/api/admin/categories")
-def admin_list_categories(request: Request, db: Session = Depends(get_db)):
-    academy_id = _admin_academy_id(request)
+def _sorted_member_categories(db: Session, academy_id: int) -> list[MemberCategory]:
     rows = db.scalars(
         select(MemberCategory)
         .where(MemberCategory.academy_id == academy_id)
-        .order_by(MemberCategory.name.asc(), MemberCategory.id.asc())
+        .order_by(MemberCategory.id.asc())
     ).all()
-    return [category_dict(row) for row in rows]
+    order_rows = db.execute(
+        select(
+            member_category_orders_table.c.category_id,
+            member_category_orders_table.c.sort_order,
+        ).where(member_category_orders_table.c.academy_id == academy_id)
+    ).all()
+    order_map = {int(category_id): int(sort_order) for category_id, sort_order in order_rows}
+    rows.sort(key=lambda row: (order_map.get(row.id, 2_147_483_647), row.id))
+    return rows
+
+
+@app.get("/api/admin/categories")
+def admin_list_categories(request: Request, db: Session = Depends(get_db)):
+    academy_id = _admin_academy_id(request)
+    return [category_dict(row) for row in _sorted_member_categories(db, academy_id)]
+
+
+@app.post("/api/admin/categories/reorder")
+def admin_reorder_categories(
+    payload: MemberCategoryOrderPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    academy_id = _main_admin_academy_id(request)
+    existing_ids = db.scalars(
+        select(MemberCategory.id)
+        .where(MemberCategory.academy_id == academy_id)
+        .order_by(MemberCategory.id.asc())
+    ).all()
+    requested_ids = [int(category_id) for category_id in payload.category_ids]
+    if len(requested_ids) != len(set(requested_ids)) or set(requested_ids) != set(existing_ids):
+        raise HTTPException(status_code=409, detail="카테고리 목록이 변경되었습니다. 새로고침 후 다시 시도해 주세요.")
+
+    db.execute(
+        delete(member_category_orders_table)
+        .where(member_category_orders_table.c.academy_id == academy_id)
+    )
+    for sort_order, category_id in enumerate(requested_ids):
+        db.execute(
+            member_category_orders_table.insert().values(
+                academy_id=academy_id,
+                category_id=category_id,
+                sort_order=sort_order,
+            )
+        )
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/admin/categories", status_code=201)
@@ -2297,6 +2356,10 @@ def admin_delete_category(category_id: int, request: Request, db: Session = Depe
     ).all()
     for policy in policies:
         policy.category_id = None
+    db.execute(
+        delete(member_category_orders_table)
+        .where(member_category_orders_table.c.category_id == category_id)
+    )
     db.delete(row)
     db.commit()
     return {"ok": True}
@@ -2947,7 +3010,7 @@ def _validate_operational_backup(payload: dict) -> dict:
 
 
 def _build_operational_backup(db: Session, academy_id: int) -> dict:
-    categories = db.scalars(select(MemberCategory).where(MemberCategory.academy_id == academy_id).order_by(MemberCategory.id.asc())).all()
+    categories = _sorted_member_categories(db, academy_id)
     users = db.scalars(select(AuthorizedUser).where(AuthorizedUser.academy_id == academy_id).order_by(AuthorizedUser.id.asc())).all()
     policies = db.scalars(select(MemberPolicy).where(MemberPolicy.academy_id == academy_id).order_by(MemberPolicy.user_id.asc())).all()
     rooms = db.scalars(select(Room).where(Room.academy_id == academy_id).order_by(Room.id.asc())).all()
@@ -3127,6 +3190,7 @@ async def admin_restore_backup(
         db.execute(delete(UnavailableBlock).where(UnavailableBlock.academy_id == academy_id))
         db.execute(delete(Reservation).where(Reservation.academy_id == academy_id))
         db.execute(delete(MemberPolicy).where(MemberPolicy.academy_id == academy_id))
+        db.execute(delete(member_category_orders_table).where(member_category_orders_table.c.academy_id == academy_id))
         db.execute(delete(MemberCategory).where(MemberCategory.academy_id == academy_id))
         db.execute(delete(AuthorizedUser).where(AuthorizedUser.academy_id == academy_id))
         db.execute(delete(RoomSchedule).where(RoomSchedule.academy_id == academy_id))
@@ -3134,7 +3198,7 @@ async def admin_restore_backup(
         db.flush()
 
         category_map: dict[str, int] = {}
-        for source in data["member_categories"]:
+        for sort_order, source in enumerate(data["member_categories"]):
             row = MemberCategory(
                 academy_id=academy_id,
                 name=str(source["name"]).strip(),
@@ -3143,6 +3207,13 @@ async def admin_restore_backup(
             db.add(row)
             db.flush()
             category_map[str(source["source_id"])] = row.id
+            db.execute(
+                member_category_orders_table.insert().values(
+                    academy_id=academy_id,
+                    category_id=row.id,
+                    sort_order=sort_order,
+                )
+            )
 
         user_map: dict[str, int] = {}
         for source in data["authorized_users"]:
