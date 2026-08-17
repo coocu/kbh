@@ -556,7 +556,20 @@
           </label>
           <button class="primary" onclick="createRoom()">추가</button>
         </div>
+        <div class="row" style="margin-top:8px">
+          <label class="inline-check">
+            <input id="newRoomAdvanceEnabled" type="checkbox" onchange="syncNewRoomAdvanceFields()">
+            사전예약 설정
+          </label>
+          <label class="muted">예약 오픈
+            <input id="newRoomAdvanceOpenHour" type="number" min="0" max="23" value="20" style="width:82px" disabled>
+          </label>
+          <label class="muted">최대
+            <input id="newRoomAdvanceDays" type="number" min="1" max="90" value="3" style="width:70px" disabled> 일
+          </label>
+        </div>
         <div class="muted">시간은 1시간 단위입니다. 24는 다음 날 00:00을 뜻합니다.</div>
+        <div class="muted">사전예약을 켜면 당일 예약은 항상 가능하고, 지정 시각 이후에만 다음날부터 설정한 일수만큼 미래 예약이 열립니다.</div>
         <div id="rooms"></div>
       </section>
 
@@ -671,6 +684,23 @@
         </div>
       </div>
       <div class="muted" style="margin-top:8px">운영시간은 1시간 단위이며, 24:00은 다음 날 00:00을 의미합니다.</div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid color-mix(in srgb, CanvasText 12%, transparent)">
+        <label class="inline-check">
+          <input id="editRoomAdvanceEnabled" type="checkbox" onchange="syncEditRoomAdvanceFields()">
+          사전예약 설정
+        </label>
+        <div class="policy-grid" style="margin-top:10px">
+          <div class="field">
+            <label class="muted">예약 오픈시간</label>
+            <select id="editRoomAdvanceOpenHour"></select>
+          </div>
+          <div class="field">
+            <label class="muted">최대 예약 가능 일수</label>
+            <input id="editRoomAdvanceDays" type="number" min="1" max="90" value="3">
+          </div>
+        </div>
+        <div class="muted" style="margin-top:8px">예: 20:00 / 3일 → 매일 20:00 이후 다음날부터 3일치 예약이 가능합니다. 20:00 전에는 당일만 예약할 수 있고, 당일 예약은 항상 가능합니다.</div>
+      </div>
       <div class="modal-actions">
         <button type="button" onclick="closeRoomEditor()">취소</button>
         <button type="button" class="primary" onclick="saveRoomEdit()">수정 저장</button>
@@ -1563,15 +1593,33 @@ async function createRoom() {
   const name = document.getElementById('newRoomName').value.trim();
   const open_hour = Number(document.getElementById('newRoomOpenHour').value);
   const close_hour = Number(document.getElementById('newRoomCloseHour').value);
+  const advance_booking_enabled = document.getElementById('newRoomAdvanceEnabled').checked;
+  const advance_booking_open_hour = Number(document.getElementById('newRoomAdvanceOpenHour').value);
+  const advance_booking_days = Number(document.getElementById('newRoomAdvanceDays').value);
   if (!name) return alert('녹음실 이름을 입력해 주세요.');
   if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간은 0~23 사이로 입력해 주세요.');
   if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간은 1~24 사이로 입력해 주세요.');
   if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
+  if (advance_booking_enabled && (!Number.isInteger(advance_booking_open_hour) || advance_booking_open_hour < 0 || advance_booking_open_hour > 23)) return alert('사전예약 오픈시간은 0~23 사이로 입력해 주세요.');
+  if (advance_booking_enabled && (!Number.isInteger(advance_booking_days) || advance_booking_days < 1 || advance_booking_days > 90)) return alert('사전예약 가능 일수는 1~90일 사이로 입력해 주세요.');
   try {
-    await api('/api/admin/rooms', {method:'POST', body:JSON.stringify({name, open_hour, close_hour})});
+    await api('/api/admin/rooms', {method:'POST', body:JSON.stringify({
+      name,
+      open_hour,
+      close_hour,
+      advance_booking_enabled,
+      advance_booking_open_hour,
+      advance_booking_days,
+    })});
     document.getElementById('newRoomName').value='';
     await loadAll();
   } catch(e) { alert(e.message); }
+}
+
+function syncNewRoomAdvanceFields() {
+  const enabled = document.getElementById('newRoomAdvanceEnabled').checked;
+  document.getElementById('newRoomAdvanceOpenHour').disabled = !enabled;
+  document.getElementById('newRoomAdvanceDays').disabled = !enabled;
 }
 
 function hourSelectOptions(start, end, selected) {
@@ -1592,7 +1640,17 @@ function openRoomEditor(id) {
   document.getElementById('editRoomName').value = room.name || '';
   document.getElementById('editRoomOpenHour').innerHTML = hourSelectOptions(0, 23, openHour);
   document.getElementById('editRoomCloseHour').innerHTML = hourSelectOptions(1, 24, closeHour);
+  document.getElementById('editRoomAdvanceEnabled').checked = Boolean(room.advance_booking_enabled);
+  document.getElementById('editRoomAdvanceOpenHour').innerHTML = hourSelectOptions(0, 23, room.advance_booking_open_hour ?? 20);
+  document.getElementById('editRoomAdvanceDays').value = room.advance_booking_days ?? 1;
+  syncEditRoomAdvanceFields();
   document.getElementById('roomEditModal').classList.add('active');
+}
+
+function syncEditRoomAdvanceFields() {
+  const enabled = document.getElementById('editRoomAdvanceEnabled').checked;
+  document.getElementById('editRoomAdvanceOpenHour').disabled = !enabled;
+  document.getElementById('editRoomAdvanceDays').disabled = !enabled;
 }
 
 function closeRoomEditor() {
@@ -1604,17 +1662,29 @@ async function saveRoomEdit() {
   const name = document.getElementById('editRoomName').value.trim();
   const open_hour = Number(document.getElementById('editRoomOpenHour').value);
   const close_hour = Number(document.getElementById('editRoomCloseHour').value);
+  const advance_booking_enabled = document.getElementById('editRoomAdvanceEnabled').checked;
+  const advance_booking_open_hour = Number(document.getElementById('editRoomAdvanceOpenHour').value);
+  const advance_booking_days = Number(document.getElementById('editRoomAdvanceDays').value);
 
   if (!id) return alert('녹음실 정보를 찾을 수 없습니다.');
   if (!name) return alert('녹음실 이름을 입력해 주세요.');
   if (!Number.isInteger(open_hour) || open_hour < 0 || open_hour > 23) return alert('오픈시간을 확인해 주세요.');
   if (!Number.isInteger(close_hour) || close_hour < 1 || close_hour > 24) return alert('마감시간을 확인해 주세요.');
   if (close_hour <= open_hour) return alert('마감시간은 오픈시간보다 뒤여야 합니다.');
+  if (advance_booking_enabled && (!Number.isInteger(advance_booking_open_hour) || advance_booking_open_hour < 0 || advance_booking_open_hour > 23)) return alert('사전예약 오픈시간을 확인해 주세요.');
+  if (advance_booking_enabled && (!Number.isInteger(advance_booking_days) || advance_booking_days < 1 || advance_booking_days > 90)) return alert('사전예약 가능 일수는 1~90일 사이로 입력해 주세요.');
 
   try {
     await api('/api/admin/rooms/' + id, {
       method:'PATCH',
-      body:JSON.stringify({name, open_hour, close_hour})
+      body:JSON.stringify({
+        name,
+        open_hour,
+        close_hour,
+        advance_booking_enabled,
+        advance_booking_open_hour,
+        advance_booking_days,
+      })
     });
     closeRoomEditor();
     await loadAll();
@@ -2487,6 +2557,9 @@ async function loadAll() {
             <div class="muted">
               ${r.is_paused ? '일시 사용중지 · '+escapeHtml(r.pause_reason||'사유 없음') : '예약 가능'}
               · 운영 ${String(r.open_hour ?? 0).padStart(2,'0')}:00 ~ ${String(r.close_hour ?? 24).padStart(2,'0')}:00
+              ${r.advance_booking_enabled
+                ? ` · 사전예약 ${String(r.advance_booking_open_hour ?? 20).padStart(2,'0')}:00 / ${r.advance_booking_days ?? 1}일`
+                : ' · 사전예약 미사용'}
             </div>
           </div>
           <div class="row room-actions">

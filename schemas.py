@@ -107,6 +107,9 @@ class RoomCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     open_hour: int = Field(default=0, ge=0, le=23)
     close_hour: int = Field(default=24, ge=1, le=24)
+    advance_booking_enabled: bool = False
+    advance_booking_open_hour: int = Field(default=20, ge=0, le=23)
+    advance_booking_days: int = Field(default=1, ge=1, le=90)
 
     @model_validator(mode="after")
     def validate_hours(self):
@@ -121,6 +124,9 @@ class RoomUpdate(BaseModel):
     pause_reason: str | None = Field(default=None, max_length=200)
     open_hour: int | None = Field(default=None, ge=0, le=23)
     close_hour: int | None = Field(default=None, ge=1, le=24)
+    advance_booking_enabled: bool | None = None
+    advance_booking_open_hour: int | None = Field(default=None, ge=0, le=23)
+    advance_booking_days: int | None = Field(default=None, ge=1, le=90)
 
 
 class ReservationCreate(BaseModel):
