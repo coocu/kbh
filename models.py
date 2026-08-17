@@ -85,6 +85,15 @@ class AdminCredential(Base):
     password_hash: Mapped[str] = mapped_column(String(300), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
 
+
+class SubAdminCredential(Base):
+    __tablename__ = "academy_subadmin_credentials"
+
+    academy_id: Mapped[int] = mapped_column(ForeignKey("academies.id", ondelete="CASCADE"), primary_key=True)
+    password_hash: Mapped[str] = mapped_column(String(300), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+
 class MemberCategory(Base):
     __tablename__ = "academy_member_categories"
     __table_args__ = (

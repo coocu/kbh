@@ -101,7 +101,7 @@
       <div class="notice success">비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.</div>
     {% endif %}
     {% if login_error %}
-      <div class="notice error">학원과 관리자 비밀번호를 확인해 주세요.</div>
+      <div class="notice error">학원과 관리자/서브관리자 비밀번호를 확인해 주세요.</div>
     {% endif %}
     {% if reauth %}
       <div class="notice error">관리자 로그인이 만료되었습니다. 다시 로그인해 주세요.</div>
@@ -114,7 +114,7 @@
       {% endfor %}
     </select>
 
-    <input name="password" type="password" autocomplete="current-password" placeholder="관리자 비밀번호" required>
+    <input name="password" type="password" autocomplete="current-password" placeholder="관리자 / 서브관리자 비밀번호" required>
     <button class="primary" type="submit">로그인</button>
     <button class="secondary" type="button" onclick="openRegister()">학원등록</button>
     <button class="delete-academy" type="button" onclick="openDeleteAcademy()">학원삭제</button>

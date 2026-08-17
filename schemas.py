@@ -103,6 +103,10 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=4, max_length=128)
 
 
+class SubAdminPasswordRequest(BaseModel):
+    password: str = Field(min_length=4, max_length=128)
+
+
 class RoomCreate(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     open_hour: int = Field(default=0, ge=0, le=23)

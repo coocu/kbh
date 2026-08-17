@@ -10,6 +10,9 @@
     body { margin:0; background:Canvas; color:CanvasText; }
     header { position:sticky; top:0; z-index:3; display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid color-mix(in srgb, CanvasText 14%, transparent); background:color-mix(in srgb, Canvas 92%, transparent); backdrop-filter:blur(18px); }
     header h1 { font-size:20px; margin:0; }
+    .header-actions { display:flex; align-items:center; gap:8px; }
+    .header-actions form { margin:0; }
+    body[data-admin-role="subadmin"] .main-admin-only { display:none !important; }
     .wrap { max-width:1100px; margin:0 auto; padding:22px; display:grid; gap:22px; }
     .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:18px; }
     .card { border:1px solid color-mix(in srgb, CanvasText 16%, transparent); border-radius:20px; padding:18px; }
@@ -45,6 +48,8 @@
       grid-template-columns:repeat(8,minmax(0,1fr));
       gap:8px;
     }
+    body[data-admin-role="admin"] .admin-tabs-inner { grid-template-columns:repeat(9,minmax(0,1fr)); }
+    body[data-admin-role="subadmin"] .admin-tabs-inner { grid-template-columns:repeat(5,minmax(0,1fr)); }
     .tab-button {
       width:100%;
       padding:10px 6px;
@@ -132,6 +137,10 @@
     .member-table .actions button { padding:7px 10px; }
     .member-limit-free { opacity:.65; }
     .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+    .tab-order-list { display:grid; gap:8px; margin-top:12px; }
+    .tab-order-row { display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius:14px; }
+    .tab-order-row strong { flex:1; min-width:0; }
+    .tab-order-row button { min-width:44px; padding:7px 10px; }
     .member-booking-summary {
       display:grid; gap:7px; padding:12px; margin:10px 0;
       border-radius:14px; background:color-mix(in srgb, #0a84ff 7%, transparent);
@@ -523,27 +532,31 @@
     }
   </style>
 </head>
-<body>
+<body data-admin-role="{{ admin_role }}">
 <header>
-  <h1>{{ academy_name }} 관리자</h1>
-  <form method="post" action="/admin/logout"><button>로그아웃</button></form>
+  <h1>{{ academy_name }} 관리자{% if admin_role == 'subadmin' %} · 서브{% endif %}</h1>
+  <div class="header-actions">
+    <button type="button" onclick="openTabOrderManager()">카테고리 정렬</button>
+    <form method="post" action="/admin/logout"><button>로그아웃</button></form>
+  </div>
 </header>
 
 <nav class="admin-tabs" aria-label="관리자 메뉴">
   <div class="admin-tabs-inner">
-    <button type="button" class="tab-button active" data-tab="rooms" onclick="switchAdminTab('rooms')">연습실 관리</button>
-    <button type="button" class="tab-button" data-tab="members" onclick="switchAdminTab('members')">회원관리</button>
+    {% if admin_role == 'admin' %}<button type="button" class="tab-button active" data-tab="rooms" onclick="switchAdminTab('rooms')">연습실 관리</button>{% endif %}
+    <button type="button" class="tab-button{% if admin_role == 'subadmin' %} active{% endif %}" data-tab="members" onclick="switchAdminTab('members')">회원관리</button>
     <button type="button" class="tab-button" data-tab="reservations" onclick="switchAdminTab('reservations')">예약현황</button>
     <button type="button" class="tab-button" data-tab="room-status" onclick="switchAdminTab('room-status')">연습실 현황</button>
     <button type="button" class="tab-button" data-tab="usage" onclick="switchAdminTab('usage')">이용현황</button>
     <button type="button" class="tab-button" data-tab="practice" onclick="switchAdminTab('practice')">연습일지체크</button>
-    <button type="button" class="tab-button" data-tab="password" onclick="switchAdminTab('password')">비밀번호 변경</button>
-    <button type="button" class="tab-button" data-tab="backup" onclick="switchAdminTab('backup')">백업/복원</button>
+    {% if admin_role == 'admin' %}<button type="button" class="tab-button" data-tab="subadmin" onclick="switchAdminTab('subadmin')">서브관리자 등록</button>{% endif %}
+    {% if admin_role == 'admin' %}<button type="button" class="tab-button" data-tab="password" onclick="switchAdminTab('password')">비밀번호 변경</button>{% endif %}
+    {% if admin_role == 'admin' %}<button type="button" class="tab-button" data-tab="backup" onclick="switchAdminTab('backup')">백업/복원</button>{% endif %}
   </div>
 </nav>
 
 <main class="wrap">
-  <section id="tab-rooms" class="tab-panel active">
+  <section id="tab-rooms" class="tab-panel active main-admin-only">
     <div class="grid">
       <section class="card">
         <h2>연습실 관리</h2>
@@ -1034,7 +1047,18 @@
     </div>
   </div>
 
-  <section id="tab-password" class="tab-panel">
+  <section id="tab-subadmin" class="tab-panel main-admin-only">
+    <section class="card">
+      <h2>서브관리자 등록</h2>
+      <div id="subAdminStatus" class="muted" style="margin-bottom:12px">서브관리자 비밀번호 상태를 확인합니다.</div>
+      <div class="row"><input id="subAdminPassword" type="password" class="grow" placeholder="서브관리자 비밀번호 (4자 이상)"></div>
+      <div class="row"><input id="subAdminPasswordConfirm" type="password" class="grow" placeholder="서브관리자 비밀번호 확인"></div>
+      <button class="primary" onclick="saveSubAdminPassword()">등록 / 변경</button>
+      <div class="muted" style="margin-top:10px">서브관리자는 회원관리, 예약현황, 연습실 현황, 이용현황, 연습일지체크만 사용할 수 있습니다.</div>
+    </section>
+  </section>
+
+  <section id="tab-password" class="tab-panel main-admin-only">
     <section class="card">
       <h2>관리자 비밀번호 변경</h2>
       <div class="row"><input id="currentAdminPassword" type="password" class="grow" placeholder="현재 비밀번호"></div>
@@ -1044,7 +1068,7 @@
     </section>
   </section>
 
-  <section id="tab-backup" class="tab-panel">
+  <section id="tab-backup" class="tab-panel main-admin-only">
     <section class="card">
       <h2>백업/복원</h2>
       <div class="muted">현재 로그인한 학원의 회원, 카테고리, 연습실, 운영시간, 예약, 예약불가, 연습일지 등 운영데이터만 ZIP으로 백업합니다. 학원명, 활성상태, 최초 관리자 정보와 관리자 비밀번호는 포함하지 않습니다.</div>
@@ -1063,6 +1087,20 @@
       </div>
     </section>
   </section>
+  <div id="tabOrderModal" class="modal-backdrop" onclick="if(event.target===this) closeTabOrderManager()">
+    <div class="modal-card">
+      <div class="member-card-head">
+        <h2>카테고리 정렬</h2>
+        <button type="button" onclick="closeTabOrderManager()">닫기</button>
+      </div>
+      <div class="muted">위/아래 버튼으로 관리자 메뉴 순서를 변경할 수 있습니다.</div>
+      <div id="tabOrderList" class="tab-order-list"></div>
+      <div class="modal-actions">
+        <button type="button" onclick="resetTabOrder()">기본순서</button>
+        <button type="button" class="primary" onclick="saveTabOrder()">저장</button>
+      </div>
+    </div>
+  </div>
 </main>
 
 <script>
@@ -1079,8 +1117,74 @@ let expandedRoomStatusIds = new Set();
 let practiceSelectedUserId = null;
 let practiceSelectedData = null;
 let practicePendingRows = [];
+const adminRole = {{ admin_role|tojson }};
+const allowedAdminTabs = adminRole === 'subadmin'
+  ? ['members','reservations','room-status','usage','practice']
+  : ['rooms','members','reservations','room-status','usage','practice','subadmin','password','backup'];
+let pendingTabOrder = [];
+
+function tabOrderStorageKey() {
+  return 'kbhAdminTabOrder:' + adminRole;
+}
+
+function currentVisibleTabOrder() {
+  return Array.from(document.querySelectorAll('.admin-tabs-inner .tab-button')).map(button => button.dataset.tab);
+}
+
+function applyStoredTabOrder() {
+  const container = document.querySelector('.admin-tabs-inner');
+  if (!container) return;
+  let stored = [];
+  try { stored = JSON.parse(localStorage.getItem(tabOrderStorageKey()) || '[]'); } catch (_) {}
+  const current = currentVisibleTabOrder();
+  const valid = stored.filter(tab => current.includes(tab));
+  current.forEach(tab => { if (!valid.includes(tab)) valid.push(tab); });
+  valid.forEach(tab => {
+    const button = container.querySelector(`.tab-button[data-tab="${tab}"]`);
+    if (button) container.appendChild(button);
+  });
+}
+
+function renderTabOrderList() {
+  const labels = Object.fromEntries(Array.from(document.querySelectorAll('.admin-tabs-inner .tab-button')).map(button => [button.dataset.tab, button.textContent.trim()]));
+  document.getElementById('tabOrderList').innerHTML = pendingTabOrder.map((tab, index) => `
+    <div class="tab-order-row">
+      <strong>${escapeHtml(labels[tab] || tab)}</strong>
+      <button type="button" onclick="moveTabOrder(${index}, -1)" ${index === 0 ? 'disabled' : ''}>↑</button>
+      <button type="button" onclick="moveTabOrder(${index}, 1)" ${index === pendingTabOrder.length - 1 ? 'disabled' : ''}>↓</button>
+    </div>`).join('');
+}
+
+function openTabOrderManager() {
+  pendingTabOrder = currentVisibleTabOrder();
+  renderTabOrderList();
+  document.getElementById('tabOrderModal').classList.add('active');
+}
+
+function closeTabOrderManager() {
+  document.getElementById('tabOrderModal').classList.remove('active');
+}
+
+function moveTabOrder(index, delta) {
+  const next = index + delta;
+  if (next < 0 || next >= pendingTabOrder.length) return;
+  [pendingTabOrder[index], pendingTabOrder[next]] = [pendingTabOrder[next], pendingTabOrder[index]];
+  renderTabOrderList();
+}
+
+function saveTabOrder() {
+  try { localStorage.setItem(tabOrderStorageKey(), JSON.stringify(pendingTabOrder)); } catch (_) {}
+  applyStoredTabOrder();
+  closeTabOrderManager();
+}
+
+function resetTabOrder() {
+  pendingTabOrder = [...allowedAdminTabs];
+  renderTabOrderList();
+}
 
 function switchAdminTab(tabName) {
+  if (!allowedAdminTabs.includes(tabName)) return;
   document.querySelectorAll('.tab-panel').forEach(panel => {
     panel.classList.toggle('active', panel.id === 'tab-' + tabName);
   });
@@ -1097,13 +1201,13 @@ function switchAdminTab(tabName) {
 }
 
 function restoreAdminTab() {
-  let tabName = 'rooms';
+  let tabName = adminRole === 'subadmin' ? 'members' : 'rooms';
   try {
-    tabName = sessionStorage.getItem('kbhAdminTab') || 'rooms';
+    tabName = sessionStorage.getItem('kbhAdminTab') || (adminRole === 'subadmin' ? 'members' : 'rooms');
   } catch (_) {}
 
-  if (!document.getElementById('tab-' + tabName)) {
-    tabName = 'rooms';
+  if (!allowedAdminTabs.includes(tabName) || !document.getElementById('tab-' + tabName)) {
+    tabName = adminRole === 'subadmin' ? 'members' : 'rooms';
   }
   switchAdminTab(tabName);
 }
@@ -2519,6 +2623,32 @@ async function confirmOperationalRestore() {
   }
 }
 
+async function loadSubAdminStatus() {
+  if (adminRole !== 'admin') return;
+  try {
+    const data = await api('/api/admin/subadmin');
+    const el = document.getElementById('subAdminStatus');
+    if (el) el.textContent = data.configured ? '서브관리자 비밀번호가 등록되어 있습니다.' : '아직 서브관리자 비밀번호가 등록되지 않았습니다.';
+  } catch(e) {
+    const el = document.getElementById('subAdminStatus');
+    if (el) el.textContent = e.message;
+  }
+}
+
+async function saveSubAdminPassword() {
+  const password = document.getElementById('subAdminPassword').value;
+  const confirm = document.getElementById('subAdminPasswordConfirm').value;
+  if (password.length < 4) return alert('서브관리자 비밀번호는 4자 이상 입력해 주세요.');
+  if (password !== confirm) return alert('서브관리자 비밀번호 확인이 일치하지 않습니다.');
+  try {
+    await api('/api/admin/subadmin', {method:'POST', body:JSON.stringify({password})});
+    document.getElementById('subAdminPassword').value = '';
+    document.getElementById('subAdminPasswordConfirm').value = '';
+    await loadSubAdminStatus();
+    alert('서브관리자 비밀번호가 저장되었습니다.');
+  } catch(e) { alert(e.message); }
+}
+
 async function changeAdminPassword() {
   const current_password = document.getElementById('currentAdminPassword').value;
   const new_password = document.getElementById('newAdminPassword').value;
@@ -2602,10 +2732,12 @@ function escapeHtml(v) {
   return String(v ?? '').replace(/[&<>"']/g, s => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[s]));
 }
 
+applyStoredTabOrder();
 restoreAdminTab();
 ensureBlockDate();
 ensureStatusDefaults();
 renderBlockHourButtons();
+loadSubAdminStatus();
 loadAll();
 setInterval(() => {
   if (document.querySelector('.modal-backdrop.active')) return;

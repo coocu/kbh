@@ -52,13 +52,16 @@ def admin_password_version(password_hash: str) -> str:
     return hashlib.sha256(password_hash.encode("utf-8")).hexdigest()
 
 
-def _current_admin_password_version(academy_id: int) -> str:
+def _current_admin_password_version(academy_id: int, role: str = "admin") -> str:
     from db import SessionLocal
-    from models import AdminCredential
+    from models import AdminCredential, SubAdminCredential
 
     with SessionLocal() as db:
-        credential = db.get(AdminCredential, academy_id)
+        credential_model = SubAdminCredential if role == "subadmin" else AdminCredential
+        credential = db.get(credential_model, academy_id)
         if credential is None:
+            if role == "subadmin":
+                raise HTTPException(status_code=401, detail="서브관리자 로그인을 다시 해 주세요.")
             raise HTTPException(status_code=503, detail="관리자 비밀번호가 설정되어 있지 않습니다.")
         return admin_password_version(credential.password_hash)
 
@@ -74,24 +77,27 @@ def _ensure_academy_active(academy_id: int) -> None:
             raise HTTPException(status_code=401, detail="현재 비활성화된 학원입니다.")
 
 
-def create_admin_session(academy_id: int, password_hash: str) -> str:
+def create_admin_session(academy_id: int, password_hash: str, role: str = "admin") -> str:
     return _serializer.dumps({
-        "role": "admin",
+        "role": role,
         "academy_id": academy_id,
         "password_version": admin_password_version(password_hash),
     })
 
 
 def _validate_admin_data(data: dict) -> dict:
-    if data.get("role") != "admin" and data.get("scope") != "admin_app":
+    role = data.get("role", "admin" if data.get("scope") == "admin_app" else None)
+    if role not in {"admin", "subadmin"}:
         raise HTTPException(status_code=403, detail="관리자 권한이 없습니다.")
 
     academy_id = data.get("academy_id")
     if not isinstance(academy_id, int):
         raise HTTPException(status_code=401, detail="관리자 로그인을 다시 해 주세요.")
 
-    if data.get("password_version") != _current_admin_password_version(academy_id):
-        raise HTTPException(status_code=401, detail="관리자 비밀번호가 변경되었습니다. 다시 로그인해 주세요.")
+    if data.get("password_version") != _current_admin_password_version(academy_id, role):
+        label = "서브관리자" if role == "subadmin" else "관리자"
+        raise HTTPException(status_code=401, detail=f"{label} 비밀번호가 변경되었습니다. 다시 로그인해 주세요.")
+    data["role"] = role
     _ensure_academy_active(academy_id)
     return data
 
@@ -116,21 +122,15 @@ def _load_admin_app_token(token: str) -> dict:
 
 
 def require_admin(request: Request) -> dict:
-    cookie_error: HTTPException | None = None
-
-    cookie = request.cookies.get("kbh_admin")
-    if cookie:
-        try:
-            return _load_web_admin_cookie(cookie)
-        except HTTPException as exc:
-            cookie_error = exc
-
+    # 앱이 Bearer 토큰을 보낸 경우 이전 WebView 쿠키보다 현재 앱 로그인을 우선한다.
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer "):
         return _load_admin_app_token(auth[7:].strip())
 
-    if cookie_error is not None:
-        raise cookie_error
+    cookie = request.cookies.get("kbh_admin")
+    if cookie:
+        return _load_web_admin_cookie(cookie)
+
     raise HTTPException(status_code=401, detail="관리자 로그인이 필요합니다.")
 
 
@@ -198,12 +198,12 @@ def create_app_token(academy_id: int, academy_name: str, name: str, phone_last4:
     })
 
 
-def create_admin_app_token(academy_id: int, academy_name: str, password_hash: str) -> str:
+def create_admin_app_token(academy_id: int, academy_name: str, password_hash: str, role: str = "admin") -> str:
     return _app_serializer.dumps({
         "academy_id": academy_id,
         "academy_name": academy_name,
         "scope": "admin_app",
-        "role": "admin",
+        "role": role,
         "password_version": admin_password_version(password_hash),
     })
 

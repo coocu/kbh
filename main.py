@@ -22,7 +22,7 @@ from auth_adapter import AuthNotConfigured, verify_license_key
 from db import Base, SessionLocal, engine
 from models import (
     Academy, AdminCredential, AuthorizedUser, MemberCategory, MemberPolicy,
-    Reservation, Room, RoomSchedule, UnavailableBlock,
+    Reservation, Room, RoomSchedule, SubAdminCredential, UnavailableBlock,
 )
 from schemas import (
     AcademyCreateRequest,
@@ -45,6 +45,7 @@ from schemas import (
     ReservationMoveRequest,
     RoomCreate,
     RoomUpdate,
+    SubAdminPasswordRequest,
     UserLoginRequest,
 )
 from security import (
@@ -720,8 +721,22 @@ def get_admin_credential(db: Session, academy_id: int) -> AdminCredential:
     return credential
 
 
+def get_subadmin_credential(db: Session, academy_id: int) -> SubAdminCredential | None:
+    return db.get(SubAdminCredential, academy_id)
+
+
 def _admin_academy_id(request: Request) -> int:
     auth = require_admin(request)
+    academy_id = auth.get("academy_id")
+    if not isinstance(academy_id, int):
+        raise HTTPException(status_code=401, detail="관리자 로그인을 다시 해 주세요.")
+    return academy_id
+
+
+def _main_admin_academy_id(request: Request) -> int:
+    auth = require_admin(request)
+    if auth.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="메인 관리자만 사용할 수 있는 기능입니다.")
     academy_id = auth.get("academy_id")
     if not isinstance(academy_id, int):
         raise HTTPException(status_code=401, detail="관리자 로그인을 다시 해 주세요.")
@@ -1138,15 +1153,23 @@ def user_app_login(payload: UserLoginRequest, db: Session = Depends(get_db)):
 def admin_app_login(payload: AdminLoginRequest, db: Session = Depends(get_db)):
     academy = get_academy(db, payload.academy_id)
     credential = get_admin_credential(db, academy.id)
+    role = "admin"
+    password_hash = credential.password_hash
+
     if not verify_password(payload.password, credential.password_hash):
-        raise HTTPException(status_code=401, detail="관리자 비밀번호가 올바르지 않습니다.")
+        subadmin = get_subadmin_credential(db, academy.id)
+        if subadmin is None or not verify_password(payload.password, subadmin.password_hash):
+            raise HTTPException(status_code=401, detail="관리자 또는 서브관리자 비밀번호가 올바르지 않습니다.")
+        role = "subadmin"
+        password_hash = subadmin.password_hash
 
     return {
         "academy_id": academy.id,
         "academy_name": academy.name,
-        "access_token": create_admin_app_token(academy.id, academy.name, credential.password_hash),
+        "access_token": create_admin_app_token(academy.id, academy.name, password_hash, role=role),
         "token_type": "bearer",
         "role": "admin",
+        "admin_role": role,
         "name": None,
         "phone_last4": None,
     }
@@ -1969,7 +1992,10 @@ def admin_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(
         request=request,
         name="admin.html",
-        context={"academy_name": academy.name},
+        context={
+            "academy_name": academy.name,
+            "admin_role": auth.get("role", "admin"),
+        },
     )
 
 
@@ -2113,13 +2139,19 @@ def admin_login(
     except HTTPException:
         return RedirectResponse(url="/admin?error=1", status_code=303)
 
+    role = "admin"
+    password_hash = credential.password_hash
     if not verify_password(password, credential.password_hash):
-        return RedirectResponse(url=f"/admin?error=1&academy_id={academy.id}", status_code=303)
+        subadmin = get_subadmin_credential(db, academy.id)
+        if subadmin is None or not verify_password(password, subadmin.password_hash):
+            return RedirectResponse(url=f"/admin?error=1&academy_id={academy.id}", status_code=303)
+        role = "subadmin"
+        password_hash = subadmin.password_hash
 
     response = RedirectResponse(url="/admin", status_code=303)
     response.set_cookie(
         "kbh_admin",
-        create_admin_session(academy.id, credential.password_hash),
+        create_admin_session(academy.id, password_hash, role=role),
         httponly=True,
         secure=os.getenv("RENDER") == "true",
         samesite="strict",
@@ -2132,12 +2164,18 @@ def admin_login(
 def admin_app_web_login(request: Request, db: Session = Depends(get_db)):
     auth = require_admin(request)
     academy = get_academy(db, auth["academy_id"])
-    credential = get_admin_credential(db, academy.id)
+    role = auth.get("role", "admin")
+    if role == "subadmin":
+        credential = get_subadmin_credential(db, academy.id)
+        if credential is None:
+            raise HTTPException(status_code=401, detail="서브관리자 로그인을 다시 해 주세요.")
+    else:
+        credential = get_admin_credential(db, academy.id)
 
     response = RedirectResponse(url="/admin", status_code=303)
     response.set_cookie(
         "kbh_admin",
-        create_admin_session(academy.id, credential.password_hash),
+        create_admin_session(academy.id, credential.password_hash, role=role),
         httponly=True,
         secure=os.getenv("RENDER") == "true",
         samesite="strict",
@@ -2156,6 +2194,33 @@ def admin_logout():
 # -----------------------------
 # Admin API - scoped to selected academy
 # -----------------------------
+
+@app.get("/api/admin/subadmin")
+def admin_subadmin_status(request: Request, db: Session = Depends(get_db)):
+    academy_id = _main_admin_academy_id(request)
+    return {"configured": get_subadmin_credential(db, academy_id) is not None}
+
+
+@app.post("/api/admin/subadmin")
+def admin_set_subadmin_password(
+    payload: SubAdminPasswordRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    academy_id = _main_admin_academy_id(request)
+    credential = get_subadmin_credential(db, academy_id)
+    if credential is None:
+        credential = SubAdminCredential(
+            academy_id=academy_id,
+            password_hash=hash_password(payload.password),
+        )
+    else:
+        credential.password_hash = hash_password(payload.password)
+        credential.updated_at = now_utc()
+    db.add(credential)
+    db.commit()
+    return {"ok": True, "configured": True}
+
 
 @app.get("/api/admin/categories")
 def admin_list_categories(request: Request, db: Session = Depends(get_db)):
@@ -2399,13 +2464,18 @@ def admin_create_member_reservation(
             policy_error = exc
 
         if policy_error is not None:
-            credential = get_admin_credential(db, academy_id)
+            auth = require_admin(request)
+            if auth.get("role") == "subadmin":
+                credential = get_subadmin_credential(db, academy_id)
+                credential_hash = credential.password_hash if credential is not None else ""
+            else:
+                credential_hash = get_admin_credential(db, academy_id).password_hash
             password = (payload.admin_password or "").strip()
-            if not password or not verify_password(password, credential.password_hash):
+            if not password or not credential_hash or not verify_password(password, credential_hash):
                 detail = getattr(policy_error, "detail", "회원 예약시간 제한을 초과했습니다.")
                 raise HTTPException(
                     status_code=409,
-                    detail=f"{detail} 관리자 비밀번호를 입력하면 이번 예약에 한해 추가시간을 승인할 수 있습니다.",
+                    detail=f"{detail} 현재 로그인한 관리자 비밀번호를 입력하면 이번 예약에 한해 추가시간을 승인할 수 있습니다.",
                 )
 
         room = db.scalar(
@@ -2991,7 +3061,7 @@ def _build_operational_backup(db: Session, academy_id: int) -> dict:
 
 @app.get("/api/admin/backup")
 def admin_download_backup(request: Request, db: Session = Depends(get_db)):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     # 로그인한 현재 학원의 운영데이터만 백업한다. Academy/AdminCredential 행은 포함하지 않는다.
     payload = _build_operational_backup(db, academy_id)
     buffer = io.BytesIO()
@@ -3018,7 +3088,7 @@ async def admin_restore_backup(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     filename = (file.filename or "").lower()
     if not filename.endswith(".zip"):
         raise HTTPException(status_code=422, detail="뮤싱크 백업 ZIP 파일을 선택해 주세요.")
@@ -3207,7 +3277,7 @@ def admin_change_password(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     credential = get_admin_credential(db, academy_id)
 
     if not verify_password(payload.current_password, credential.password_hash):
@@ -3248,7 +3318,7 @@ def admin_list_rooms(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/admin/rooms", status_code=201)
 def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depends(get_db)):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     name = payload.name.strip()
 
     existing = db.scalar(
@@ -3305,7 +3375,7 @@ def admin_update_room(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     room = db.scalar(
         select(Room).where(
             Room.id == room_id,
@@ -3350,7 +3420,7 @@ def admin_update_room(
 
 @app.delete("/api/admin/rooms/{room_id}")
 def admin_delete_room(room_id: int, request: Request, db: Session = Depends(get_db)):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     room = db.scalar(
         select(Room).where(
             Room.id == room_id,
@@ -3542,7 +3612,7 @@ def admin_list_blocks(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/admin/blocks", status_code=201)
 def admin_create_block(payload: BlockCreate, request: Request, db: Session = Depends(get_db)):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     start = normalize_utc(payload.start_at)
     end = normalize_utc(payload.end_at)
 
@@ -3596,7 +3666,7 @@ def admin_create_block(payload: BlockCreate, request: Request, db: Session = Dep
 
 @app.delete("/api/admin/blocks/{block_id}")
 def admin_delete_block(block_id: str, request: Request, db: Session = Depends(get_db)):
-    academy_id = _admin_academy_id(request)
+    academy_id = _main_admin_academy_id(request)
     row = db.scalar(
         select(UnavailableBlock).where(
             UnavailableBlock.id == block_id,
