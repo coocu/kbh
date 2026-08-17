@@ -149,17 +149,17 @@
       overflow:hidden !important;
       overscroll-behavior:none;
     }
-    #adminNoticeModal {
+    #adminNoticeModal, #adminEmergencyNoticeModal {
       overscroll-behavior:contain;
     }
-    #adminNoticeModal .modal-card {
+    #adminNoticeModal .modal-card, #adminEmergencyNoticeModal .modal-card {
       display:flex;
       flex-direction:column;
       overflow:hidden;
       max-height:90dvh;
       overscroll-behavior:contain;
     }
-    #adminNoticeText {
+    #adminNoticeText, #adminEmergencyNoticeText {
       min-height:0;
       max-height:60dvh;
       overflow-y:auto;
@@ -167,7 +167,7 @@
       overscroll-behavior:contain;
       touch-action:pan-y;
     }
-    #adminNoticeModal .modal-actions {
+    #adminNoticeModal .modal-actions, #adminEmergencyNoticeModal .modal-actions {
       flex:0 0 auto;
     }
     .tab-order-list { display:grid; gap:8px; margin-top:12px; }
@@ -714,6 +714,16 @@
     </section>
   </section>
 
+
+  <div id="adminEmergencyNoticeModal" class="modal-backdrop">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="adminEmergencyNoticeTitle">
+      <h2 id="adminEmergencyNoticeTitle">긴급공지</h2>
+      <div id="adminEmergencyNoticeText" style="white-space:pre-wrap;line-height:1.7;margin-top:12px"></div>
+      <div class="modal-actions">
+        <button type="button" class="primary" onclick="closeAdminEmergencyNotice()">닫기</button>
+      </div>
+    </div>
+  </div>
 
   <div id="adminNoticeModal" class="modal-backdrop">
     <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="adminNoticeTitle">
@@ -1336,6 +1346,43 @@ function unlockAdminNoticeBackground() {
   window.scrollTo(0, saved.scrollY);
 }
 
+let pendingRegularAdminNotice = '';
+
+function showRegularAdminNotice(notice) {
+  if (!notice) return false;
+  const text = document.getElementById('adminNoticeText');
+  if (text) {
+    text.textContent = notice;
+    text.scrollTop = 0;
+  }
+  lockAdminNoticeBackground();
+  document.getElementById('adminNoticeModal')?.classList.add('active');
+  return true;
+}
+
+function showAdminEmergencyNotice(notice) {
+  if (!notice) return false;
+  const text = document.getElementById('adminEmergencyNoticeText');
+  if (text) {
+    text.textContent = notice;
+    text.scrollTop = 0;
+  }
+  lockAdminNoticeBackground();
+  document.getElementById('adminEmergencyNoticeModal')?.classList.add('active');
+  return true;
+}
+
+function closeAdminEmergencyNotice() {
+  document.getElementById('adminEmergencyNoticeModal')?.classList.remove('active');
+  if (pendingRegularAdminNotice) {
+    const notice = pendingRegularAdminNotice;
+    pendingRegularAdminNotice = '';
+    showRegularAdminNotice(notice);
+    return;
+  }
+  unlockAdminNoticeBackground();
+}
+
 function closeAdminNotice() {
   document.getElementById('adminNoticeModal')?.classList.remove('active');
   unlockAdminNoticeBackground();
@@ -1349,6 +1396,19 @@ function hideAdminNoticeFor7Days() {
   closeAdminNotice();
 }
 
+async function fetchAdminNoticeText(url) {
+  try {
+    const response = await fetch(url, {
+      cache:'no-store',
+      headers:{'Cache-Control':'no-cache'}
+    });
+    if (!response.ok) return '';
+    return (await response.text()).trim();
+  } catch (_) {
+    return '';
+  }
+}
+
 async function maybeShowAdminLoginNotice() {
   if (adminRole !== 'admin' || !adminLoginNoticeRequested) return;
 
@@ -1359,30 +1419,25 @@ async function maybeShowAdminLoginNotice() {
     history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
   } catch (_) {}
 
+  // 긴급공지는 7일 숨김과 무관하며, 파일 내용이 있으면 로그인할 때마다 먼저 표시한다.
+  const emergencyNotice = await fetchAdminNoticeText('/api/admin/emergency-notice');
+
+  let regularNotice = '';
   let hiddenUntil = 0;
   try {
     hiddenUntil = Number(localStorage.getItem(adminNoticeStorageKey()) || '0');
   } catch (_) {}
-  if (hiddenUntil > Date.now()) return;
-
-  try {
-    const response = await fetch('/api/admin/notice', {
-      cache:'no-store',
-      headers:{'Cache-Control':'no-cache'}
-    });
-    if (!response.ok) return;
-    const notice = (await response.text()).trim();
-    if (!notice) return;
-    const text = document.getElementById('adminNoticeText');
-    if (text) {
-      text.textContent = notice;
-      text.scrollTop = 0;
-    }
-    lockAdminNoticeBackground();
-    document.getElementById('adminNoticeModal')?.classList.add('active');
-  } catch (_) {
-    unlockAdminNoticeBackground();
+  if (hiddenUntil <= Date.now()) {
+    regularNotice = await fetchAdminNoticeText('/api/admin/notice');
   }
+
+  if (emergencyNotice) {
+    pendingRegularAdminNotice = regularNotice;
+    showAdminEmergencyNotice(emergencyNotice);
+    return;
+  }
+
+  showRegularAdminNotice(regularNotice);
 }
 
 async function api(url, options={}) {

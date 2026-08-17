@@ -2246,6 +2246,19 @@ def admin_notice(request: Request):
         return ""
 
 
+@app.get("/api/admin/emergency-notice", response_class=PlainTextResponse)
+def admin_emergency_notice(request: Request):
+    auth = require_admin(request)
+    if auth.get("role", "admin") != "admin":
+        raise HTTPException(status_code=403, detail="메인 관리자만 확인할 수 있습니다.")
+
+    notice_path = BASE_DIR / "admin_emergency_notice.txt"
+    try:
+        return notice_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
 @app.get("/api/admin/subadmin")
 def admin_subadmin_status(request: Request, db: Session = Depends(get_db)):
     academy_id = _main_admin_academy_id(request)
