@@ -551,6 +551,16 @@
         gap:8px;
       }
       .modal-actions button, .modal-card > .row[style*="justify-content:flex-end"] button { width:100%; }
+      /* 긴급공지는 버튼이 하나뿐이므로 모바일에서도 오른쪽 끝에 배치한다. */
+      #adminEmergencyNoticeModal .modal-actions {
+        display:flex !important;
+        justify-content:flex-end !important;
+      }
+      #adminEmergencyNoticeModal .modal-actions button {
+        width:auto !important;
+        min-width:96px;
+        margin-left:auto;
+      }
     }
 
     @media (max-width:600px) {
