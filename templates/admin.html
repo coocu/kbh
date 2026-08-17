@@ -565,7 +565,10 @@
   <section id="tab-rooms" class="tab-panel active main-admin-only">
     <div class="grid">
       <section class="card">
-        <h2>연습실 관리</h2>
+        <div class="member-card-head">
+          <h2>연습실 관리</h2>
+          <button type="button" onclick="openRoomOrderManager()">순서 변경</button>
+        </div>
         <div class="row">
           <input id="newRoomName" placeholder="예: 연습실 1" style="flex:1;min-width:170px">
           <label class="muted">오픈
@@ -728,11 +731,28 @@
     </div>
   </div>
 
+  <div id="roomOrderModal" class="modal-backdrop" onclick="if(event.target===this) closeRoomOrderManager()">
+    <div class="modal-card">
+      <div class="member-card-head">
+        <h2>연습실 순서 변경</h2>
+        <div class="row">
+          <button type="button" onclick="closeRoomOrderManager()">닫기</button>
+          <button type="button" class="primary" onclick="saveRoomOrder()">저장</button>
+        </div>
+      </div>
+      <div class="muted category-sort-hint">▲ / ▼ 버튼으로 순서를 옮긴 뒤 저장을 누르면 서버에 반영됩니다.</div>
+      <div id="roomOrderList" class="tab-order-list"></div>
+    </div>
+  </div>
+
   <div id="categoryManagerModal" class="modal-backdrop" onclick="if(event.target===this) closeCategoryManager()">
     <div class="modal-card">
       <div class="member-card-head">
         <h2>카테고리 관리</h2>
-        <button type="button" onclick="closeCategoryManager()">닫기</button>
+        <div class="row">
+          <button type="button" onclick="closeCategoryManager()">닫기</button>
+          {% if admin_role == 'admin' %}<button type="button" class="primary" onclick="saveMemberCategoryOrder()">저장</button>{% endif %}
+        </div>
       </div>
       <div class="row">
         <input id="categoryName" class="grow" placeholder="예: 취미반, 입시반">
@@ -940,15 +960,19 @@
 
       <div class="row" style="margin-top:12px">
         <label for="usageCategoryFilter" class="muted">카테고리</label>
-        <select id="usageCategoryFilter" class="grow" onchange="renderUsageStatus()">
+        <select id="usageCategoryFilter" class="grow" onchange="clearUsageSearch(); renderUsageStatus()">
           <option value="">전체</option>
         </select>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="usageSearch" class="grow" placeholder="이름 또는 전화번호 검색" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault(); searchUsageRanking();}">
+        <button type="button" onclick="searchUsageRanking()">검색</button>
       </div>
 
       <div class="usage-hero">
         <div class="usage-trophy">🏆</div>
-        <div id="usageTitle" class="usage-title">이용 순위 TOP 10</div>
-        <div class="usage-subtitle">취소된 예약은 이용시간에서 제외됩니다.</div>
+        <div id="usageTitle" class="usage-title">이용 순위</div>
+        <div class="usage-subtitle">예약한 시간이 실제로 지난 만큼만 이용시간에 반영됩니다.</div>
       </div>
 
       <div id="usageList" class="usage-list"></div>
@@ -1118,6 +1142,9 @@ let reservationRows = [];
 let reservationRoomMap = {};
 let authorizedUserRows = [];
 let memberCategories = [];
+let pendingMemberCategories = [];
+let pendingRoomOrder = [];
+let usageSearchKeyword = '';
 let blockRows = [];
 let selectedBlockHours = new Set();
 let selectedMemberReservationHours = new Set();
@@ -1214,15 +1241,8 @@ function switchAdminTab(tabName) {
 }
 
 function restoreAdminTab() {
-  let tabName = adminRole === 'subadmin' ? 'members' : 'rooms';
-  try {
-    tabName = sessionStorage.getItem('kbhAdminTab') || (adminRole === 'subadmin' ? 'members' : 'rooms');
-  } catch (_) {}
-
-  if (!allowedAdminTabs.includes(tabName) || !document.getElementById('tab-' + tabName)) {
-    tabName = adminRole === 'subadmin' ? 'members' : 'rooms';
-  }
-  switchAdminTab(tabName);
+  const firstTab = currentVisibleTabOrder().find(tab => allowedAdminTabs.includes(tab) && document.getElementById('tab-' + tab));
+  switchAdminTab(firstTab || (adminRole === 'subadmin' ? 'members' : 'rooms'));
 }
 
 async function api(url, options={}) {
@@ -1261,6 +1281,13 @@ function toISO(localValue) {
 function fmt(iso) {
   if (!iso) return '-';
   return new Date(iso).toLocaleString('ko-KR');
+}
+
+function fmtMinute(iso) {
+  if (!iso) return '-';
+  return new Date(iso).toLocaleString('ko-KR', {
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
+  });
 }
 
 function localDateKey(iso) {
@@ -1509,10 +1536,17 @@ function monthKeyFromISO(iso) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
 }
 
-function reservationDurationHours(row) {
+function reservationElapsedHours(row, monthKey) {
   const start = new Date(row.start_at);
   const end = new Date(row.end_at);
-  const hours = (end - start) / 3600000;
+  const [year, month] = monthKey.split('-').map(Number);
+  const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const monthEnd = new Date(year, month, 1, 0, 0, 0, 0);
+  const now = new Date();
+
+  const effectiveStart = new Date(Math.max(start.getTime(), monthStart.getTime()));
+  const effectiveEnd = new Date(Math.min(end.getTime(), monthEnd.getTime(), now.getTime()));
+  const hours = (effectiveEnd - effectiveStart) / 3600000;
   return Number.isFinite(hours) && hours > 0 ? hours : 0;
 }
 
@@ -1524,8 +1558,24 @@ function memberForReservation(row) {
 }
 
 function formatHours(hours) {
-  if (Math.abs(hours - Math.round(hours)) < 0.001) return `${Math.round(hours)}시간`;
-  return `${hours.toFixed(1)}시간`;
+  const totalMinutes = Math.max(0, Math.floor((Number(hours) || 0) * 60));
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h && m) return `${h}시간 ${m}분`;
+  if (h) return `${h}시간`;
+  if (m) return `${m}분`;
+  return '0시간';
+}
+
+function clearUsageSearch() {
+  usageSearchKeyword = '';
+  const input = document.getElementById('usageSearch');
+  if (input) input.value = '';
+}
+
+function searchUsageRanking() {
+  usageSearchKeyword = (document.getElementById('usageSearch')?.value || '').trim().toLocaleLowerCase('ko-KR');
+  renderUsageStatus();
 }
 
 function renderUsageStatus() {
@@ -1545,39 +1595,43 @@ function renderUsageStatus() {
   } else if (categoryFilter) {
     categoryTitle = memberCategories.find(c => String(c.id) === categoryFilter)?.name || '전체';
   }
-  title.textContent = `${year}년 ${month}월 · ${categoryTitle} 이용 순위 TOP 10`;
+  title.textContent = `${year}년 ${month}월 · ${categoryTitle} 이용 순위`;
 
-  const totals = new Map();
+  const eligibleMembers = authorizedUserRows.filter(member => {
+    if (!categoryFilter) return true;
+    if (categoryFilter === '__none__') return !member.category_id;
+    return String(member.category_id || '') === categoryFilter;
+  });
+
+  const totals = new Map(eligibleMembers.map(member => [Number(member.id), {
+    member_id: Number(member.id),
+    name: member.name || '이름 없음',
+    phone_last4: member.phone_last4 || '',
+    hours: 0,
+    category_name: member.category_name || null,
+  }]));
 
   reservationRows
-    .filter(r => {
-      if (r.status === '취소됨' || monthKeyFromISO(r.start_at) !== monthKey) return false;
-      if (!categoryFilter) return true;
-      const member = memberForReservation(r);
-      if (categoryFilter === '__none__') return !member?.category_id;
-      return String(member?.category_id || '') === categoryFilter;
-    })
+    .filter(r => r.status !== '취소됨')
     .forEach(r => {
-      const key = `${r.nickname || ''}\u0000${r.phone_last4 || ''}`;
-      const previous = totals.get(key) || {
-        name: r.nickname || '이름 없음',
-        phone_last4: r.phone_last4 || '',
-        hours: 0,
-        category_name: null,
-      };
-      previous.hours += reservationDurationHours(r);
-
       const member = memberForReservation(r);
-      if (member?.category_name) previous.category_name = member.category_name;
-      totals.set(key, previous);
+      if (!member || !totals.has(Number(member.id))) return;
+      totals.get(Number(member.id)).hours += reservationElapsedHours(r, monthKey);
     });
 
-  const ranking = Array.from(totals.values())
-    .sort((a,b) => b.hours - a.hours || String(a.name).localeCompare(String(b.name), 'ko'))
-    .slice(0, 10);
+  const fullRanking = Array.from(totals.values())
+    .sort((a,b) => b.hours - a.hours || String(a.name).localeCompare(String(b.name), 'ko') || String(a.phone_last4).localeCompare(String(b.phone_last4)))
+    .map((row, index) => ({...row, rank:index + 1}));
 
-  list.innerHTML = ranking.map((row, index) => {
-    const rank = index + 1;
+  const visibleRanking = usageSearchKeyword
+    ? fullRanking.filter(row =>
+        String(row.name || '').toLocaleLowerCase('ko-KR').includes(usageSearchKeyword) ||
+        String(row.phone_last4 || '').includes(usageSearchKeyword)
+      )
+    : fullRanking;
+
+  list.innerHTML = visibleRanking.map(row => {
+    const rank = row.rank;
     return `
       <div class="usage-card rank-${rank}">
         <div class="usage-rank">${rank}</div>
@@ -1592,7 +1646,7 @@ function renderUsageStatus() {
         </div>
         <div class="usage-hours">${formatHours(row.hours)}</div>
       </div>`;
-  }).join('') || '<div class="usage-empty">선택한 달의 예약 이용내역이 없습니다.</div>';
+  }).join('') || '<div class="usage-empty">검색 결과가 없습니다.</div>';
 }
 
 function renderReservations() {
@@ -1620,7 +1674,7 @@ function renderReservations() {
     <tr>
       <td data-label="상태"><span class="badge">${escapeHtml(r.status)}</span></td>
       <td data-label="연습실">${escapeHtml(reservationRoomMap[r.room_id]||('연습실 #'+r.room_id))}</td>
-      <td data-label="예약시간">${fmt(r.start_at)}<br>~ ${fmt(r.end_at)}</td>
+      <td data-label="예약시간">${fmtMinute(r.start_at)}<br>~ ${fmtMinute(r.end_at)}</td>
       <td data-label="예약자">${escapeHtml(r.nickname)}</td>
       <td data-label="전화 끝 4자리">${escapeHtml(r.phone_last4)}</td>
       <td data-label="사유">${r.cancel_reason ? escapeHtml(r.cancel_reason) : '<span class="muted">-</span>'}</td>
@@ -1931,56 +1985,68 @@ async function deleteMemberCategory(id, name) {
 }
 
 function categoryOptions(selectedId=null, includeAll=false) {
-  const first = includeAll
-    ? '<option value="">전체 카테고리</option><option value="__none__">미지정</option>'
-    : '<option value="">미지정</option>';
-  return first + memberCategories.map(c =>
+  const categoryHtml = memberCategories.map(c =>
     `<option value="${c.id}" ${Number(selectedId)===c.id?'selected':''}>${escapeHtml(c.name)}</option>`
   ).join('');
+  if (includeAll) {
+    return '<option value="">전체 카테고리</option>' + categoryHtml + '<option value="__none__">미지정</option>';
+  }
+  const noneSelected = selectedId === null || selectedId === undefined || selectedId === '';
+  return categoryHtml + `<option value="" ${noneSelected ? 'selected' : ''}>미지정</option>`;
 }
 
-async function moveMemberCategory(categoryId, direction) {
+function moveMemberCategory(categoryId, direction) {
   if (adminRole !== 'admin') return;
 
-  const categoryIds = memberCategories.map(c => Number(c.id));
-  const currentIndex = categoryIds.indexOf(Number(categoryId));
+  const currentIndex = pendingMemberCategories.findIndex(c => Number(c.id) === Number(categoryId));
   const targetIndex = currentIndex + Number(direction);
-  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= categoryIds.length) return;
+  if (currentIndex < 0 || targetIndex < 0 || targetIndex >= pendingMemberCategories.length) return;
 
-  [categoryIds[currentIndex], categoryIds[targetIndex]] = [categoryIds[targetIndex], categoryIds[currentIndex]];
+  [pendingMemberCategories[currentIndex], pendingMemberCategories[targetIndex]] = [pendingMemberCategories[targetIndex], pendingMemberCategories[currentIndex]];
+  renderMemberCategoryOrderList();
+}
 
+function renderMemberCategoryOrderList() {
+  const list = document.getElementById('memberCategories');
+  if (!list) return;
+  const rows = adminRole === 'admin' ? pendingMemberCategories : memberCategories;
+  list.innerHTML = rows.map((c, index)=>`
+    <div class="room" data-category-id="${c.id}">
+      <div class="row" style="justify-content:space-between">
+        <strong>${escapeHtml(c.name)}</strong>
+        <div class="row">
+          ${adminRole === 'admin' ? `
+            <div class="category-order-buttons">
+              <button type="button" onclick="moveMemberCategory(${c.id}, -1)" ${index === 0 ? 'disabled' : ''} title="위로 이동" aria-label="${escapeHtml(c.name)} 위로 이동">▲</button>
+              <button type="button" onclick="moveMemberCategory(${c.id}, 1)" ${index === rows.length - 1 ? 'disabled' : ''} title="아래로 이동" aria-label="${escapeHtml(c.name)} 아래로 이동">▼</button>
+            </div>` : ''}
+          <button onclick='renameMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>수정</button>
+          <button class="danger" onclick='deleteMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>삭제</button>
+        </div>
+      </div>
+    </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 카테고리가 없습니다.</div>';
+}
+
+async function saveMemberCategoryOrder() {
+  if (adminRole !== 'admin') return;
   try {
     await api('/api/admin/categories/reorder', {
       method:'POST',
-      body:JSON.stringify({category_ids: categoryIds})
+      body:JSON.stringify({category_ids: pendingMemberCategories.map(c => Number(c.id))})
     });
     await loadMemberCategories();
+    pendingMemberCategories = memberCategories.map(c => ({...c}));
+    renderMemberCategoryOrderList();
+    alert('카테고리 순서가 저장되었습니다.');
   } catch(e) {
     alert(e.message);
     await loadMemberCategories();
+    pendingMemberCategories = memberCategories.map(c => ({...c}));
+    renderMemberCategoryOrderList();
   }
 }
 
 function renderMemberCategories() {
-  const list = document.getElementById('memberCategories');
-  if (list) {
-    list.innerHTML = memberCategories.map((c, index)=>`
-      <div class="room" data-category-id="${c.id}">
-        <div class="row" style="justify-content:space-between">
-          <strong>${escapeHtml(c.name)}</strong>
-          <div class="row">
-            ${adminRole === 'admin' ? `
-              <div class="category-order-buttons">
-                <button type="button" onclick="moveMemberCategory(${c.id}, -1)" ${index === 0 ? 'disabled' : ''} title="위로 이동" aria-label="${escapeHtml(c.name)} 위로 이동">▲</button>
-                <button type="button" onclick="moveMemberCategory(${c.id}, 1)" ${index === memberCategories.length - 1 ? 'disabled' : ''} title="아래로 이동" aria-label="${escapeHtml(c.name)} 아래로 이동">▼</button>
-              </div>` : ''}
-            <button onclick='renameMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>수정</button>
-            <button class="danger" onclick='deleteMemberCategory(${c.id}, ${JSON.stringify(c.name)})'>삭제</button>
-          </div>
-        </div>
-      </div>`).join('') || '<div class="muted" style="margin-top:12px">등록된 카테고리가 없습니다.</div>';
-  }
-
   const createSelect = document.getElementById('userCategory');
   if (createSelect) {
     const current = createSelect.value;
@@ -2015,19 +2081,28 @@ function renderMemberCategories() {
     practiceFilter.innerHTML = categoryOptions(null, true).replace('전체 카테고리', '전체');
     if ([...practiceFilter.options].some(o => o.value === current)) practiceFilter.value = current;
   }
+
+  if (document.getElementById('categoryManagerModal')?.classList.contains('active')) {
+    renderMemberCategoryOrderList();
+  }
 }
 
 function openCategoryManager() {
-  renderMemberCategories();
+  pendingMemberCategories = memberCategories.map(c => ({...c}));
   document.getElementById('categoryManagerModal').classList.add('active');
+  renderMemberCategoryOrderList();
 }
 
 function closeCategoryManager() {
+  pendingMemberCategories = [];
   document.getElementById('categoryManagerModal').classList.remove('active');
 }
 
 async function loadMemberCategories() {
   memberCategories = await api('/api/admin/categories');
+  if (document.getElementById('categoryManagerModal')?.classList.contains('active')) {
+    pendingMemberCategories = memberCategories.map(c => ({...c}));
+  }
   renderMemberCategories();
 }
 
@@ -2717,6 +2792,51 @@ async function changeAdminPassword() {
       window.location.href = '/admin';
     }
   } catch(e) { alert(e.message); }
+}
+
+function renderRoomOrderList() {
+  const list = document.getElementById('roomOrderList');
+  if (!list) return;
+  list.innerHTML = pendingRoomOrder.map((room, index) => `
+    <div class="tab-order-row">
+      <strong>${escapeHtml(room.name)}</strong>
+      <button type="button" onclick="moveRoomOrder(${index}, -1)" ${index === 0 ? 'disabled' : ''}>▲</button>
+      <button type="button" onclick="moveRoomOrder(${index}, 1)" ${index === pendingRoomOrder.length - 1 ? 'disabled' : ''}>▼</button>
+    </div>`).join('') || '<div class="muted">등록된 연습실이 없습니다.</div>';
+}
+
+function openRoomOrderManager() {
+  if (adminRole !== 'admin') return;
+  pendingRoomOrder = rooms.map(room => ({id:Number(room.id), name:room.name}));
+  renderRoomOrderList();
+  document.getElementById('roomOrderModal').classList.add('active');
+}
+
+function closeRoomOrderManager() {
+  pendingRoomOrder = [];
+  document.getElementById('roomOrderModal').classList.remove('active');
+}
+
+function moveRoomOrder(index, delta) {
+  const next = index + delta;
+  if (next < 0 || next >= pendingRoomOrder.length) return;
+  [pendingRoomOrder[index], pendingRoomOrder[next]] = [pendingRoomOrder[next], pendingRoomOrder[index]];
+  renderRoomOrderList();
+}
+
+async function saveRoomOrder() {
+  if (adminRole !== 'admin') return;
+  try {
+    await api('/api/admin/rooms/reorder', {
+      method:'POST',
+      body:JSON.stringify({room_ids: pendingRoomOrder.map(room => Number(room.id))})
+    });
+    closeRoomOrderManager();
+    await loadAll();
+    alert('연습실 순서가 저장되었습니다.');
+  } catch(e) {
+    alert(e.message);
+  }
 }
 
 async function loadAll() {

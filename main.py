@@ -69,6 +69,10 @@ class MemberCategoryOrderPayload(BaseModel):
     category_ids: list[int]
 
 
+class RoomOrderPayload(BaseModel):
+    room_ids: list[int]
+
+
 class PracticeJournalCreatePayload(BaseModel):
     content: str = Field(min_length=1, max_length=3000)
 
@@ -116,6 +120,17 @@ member_category_orders_table = Table(
     "academy_member_category_orders",
     Base.metadata,
     Column("category_id", Integer, ForeignKey("academy_member_categories.id", ondelete="CASCADE"), primary_key=True),
+    Column("academy_id", Integer, ForeignKey("academies.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("sort_order", Integer, nullable=False),
+)
+
+
+# 연습실 표시 순서만 별도 테이블에 저장한다.
+# 기존 연습실/예약 테이블 구조는 변경하지 않는다.
+room_orders_table = Table(
+    "academy_room_orders",
+    Base.metadata,
+    Column("room_id", Integer, ForeignKey("academy_rooms.id", ondelete="CASCADE"), primary_key=True),
     Column("academy_id", Integer, ForeignKey("academies.id", ondelete="CASCADE"), nullable=False, index=True),
     Column("sort_order", Integer, nullable=False),
 )
@@ -1190,6 +1205,22 @@ def admin_app_login(payload: AdminLoginRequest, db: Session = Depends(get_db)):
     }
 
 
+def _sorted_rooms(db: Session, academy_id: int, include_deleted: bool = False) -> list[Room]:
+    stmt = select(Room).where(Room.academy_id == academy_id)
+    if not include_deleted:
+        stmt = stmt.where(Room.is_deleted.is_(False))
+    rows = db.scalars(stmt.order_by(Room.id.asc())).all()
+    order_rows = db.execute(
+        select(
+            room_orders_table.c.room_id,
+            room_orders_table.c.sort_order,
+        ).where(room_orders_table.c.academy_id == academy_id)
+    ).all()
+    order_map = {int(room_id): int(sort_order) for room_id, sort_order in order_rows}
+    rows.sort(key=lambda row: (order_map.get(row.id, 2_147_483_647), row.id))
+    return rows
+
+
 # -----------------------------
 # Public iOS app API
 # -----------------------------
@@ -1199,12 +1230,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
     auth = require_app_token(request)
     academy_id = auth["academy_id"]
     academy = get_academy(db, academy_id)
-    rooms = db.scalars(
-        select(Room).where(
-            Room.academy_id == academy_id,
-            Room.is_deleted.is_(False),
-        ).order_by(Room.name.asc())
-    ).all()
+    rooms = _sorted_rooms(db, academy_id)
     schedules = {
         row.room_id: row
         for row in db.scalars(
@@ -1245,12 +1271,7 @@ def bootstrap(request: Request, db: Session = Depends(get_db)):
 def list_rooms(request: Request, db: Session = Depends(get_db)):
     auth = require_app_token(request)
     academy_id = auth["academy_id"]
-    rooms = db.scalars(
-        select(Room).where(
-            Room.academy_id == academy_id,
-            Room.is_deleted.is_(False),
-        ).order_by(Room.name.asc())
-    ).all()
+    rooms = _sorted_rooms(db, academy_id)
     schedules = {
         row.room_id: row
         for row in db.scalars(
@@ -3013,7 +3034,7 @@ def _build_operational_backup(db: Session, academy_id: int) -> dict:
     categories = _sorted_member_categories(db, academy_id)
     users = db.scalars(select(AuthorizedUser).where(AuthorizedUser.academy_id == academy_id).order_by(AuthorizedUser.id.asc())).all()
     policies = db.scalars(select(MemberPolicy).where(MemberPolicy.academy_id == academy_id).order_by(MemberPolicy.user_id.asc())).all()
-    rooms = db.scalars(select(Room).where(Room.academy_id == academy_id).order_by(Room.id.asc())).all()
+    rooms = _sorted_rooms(db, academy_id, include_deleted=True)
     schedules = db.scalars(select(RoomSchedule).where(RoomSchedule.academy_id == academy_id).order_by(RoomSchedule.room_id.asc())).all()
     reservations = db.scalars(select(Reservation).where(Reservation.academy_id == academy_id).order_by(Reservation.created_at.asc())).all()
     blocks = db.scalars(select(UnavailableBlock).where(UnavailableBlock.academy_id == academy_id).order_by(UnavailableBlock.created_at.asc())).all()
@@ -3194,6 +3215,7 @@ async def admin_restore_backup(
         db.execute(delete(MemberCategory).where(MemberCategory.academy_id == academy_id))
         db.execute(delete(AuthorizedUser).where(AuthorizedUser.academy_id == academy_id))
         db.execute(delete(RoomSchedule).where(RoomSchedule.academy_id == academy_id))
+        db.execute(delete(room_orders_table).where(room_orders_table.c.academy_id == academy_id))
         db.execute(delete(Room).where(Room.academy_id == academy_id))
         db.flush()
 
@@ -3252,6 +3274,13 @@ async def admin_restore_backup(
             db.add(row)
             db.flush()
             room_map[str(source["source_id"])] = row.id
+            db.execute(
+                room_orders_table.insert().values(
+                    academy_id=academy_id,
+                    room_id=row.id,
+                    sort_order=len(room_map) - 1,
+                )
+            )
 
         for source in data["room_schedules"]:
             db.add(RoomSchedule(
@@ -3376,12 +3405,7 @@ def admin_change_password(
 @app.get("/api/admin/rooms")
 def admin_list_rooms(request: Request, db: Session = Depends(get_db)):
     academy_id = _admin_academy_id(request)
-    rooms = db.scalars(
-        select(Room).where(
-            Room.academy_id == academy_id,
-            Room.is_deleted.is_(False),
-        ).order_by(Room.name.asc())
-    ).all()
+    rooms = _sorted_rooms(db, academy_id)
     schedules = {
         row.room_id: row
         for row in db.scalars(
@@ -3389,6 +3413,39 @@ def admin_list_rooms(request: Request, db: Session = Depends(get_db)):
         ).all()
     }
     return [room_dict(r, schedules.get(r.id)) for r in rooms]
+
+
+@app.post("/api/admin/rooms/reorder")
+def admin_reorder_rooms(
+    payload: RoomOrderPayload,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    academy_id = _main_admin_academy_id(request)
+    existing_ids = db.scalars(
+        select(Room.id).where(
+            Room.academy_id == academy_id,
+            Room.is_deleted.is_(False),
+        ).order_by(Room.id.asc())
+    ).all()
+    requested_ids = [int(room_id) for room_id in payload.room_ids]
+    if len(requested_ids) != len(set(requested_ids)) or set(requested_ids) != set(existing_ids):
+        raise HTTPException(status_code=409, detail="연습실 목록이 변경되었습니다. 새로고침 후 다시 시도해 주세요.")
+
+    db.execute(
+        delete(room_orders_table)
+        .where(room_orders_table.c.academy_id == academy_id)
+    )
+    for sort_order, room_id in enumerate(requested_ids):
+        db.execute(
+            room_orders_table.insert().values(
+                academy_id=academy_id,
+                room_id=room_id,
+                sort_order=sort_order,
+            )
+        )
+    db.commit()
+    return {"ok": True}
 
 
 @app.post("/api/admin/rooms", status_code=201)
@@ -3507,6 +3564,7 @@ def admin_delete_room(room_id: int, request: Request, db: Session = Depends(get_
         raise HTTPException(status_code=404, detail="연습실을 찾을 수 없습니다.")
     room.is_deleted = True
     room.is_paused = True
+    db.execute(delete(room_orders_table).where(room_orders_table.c.room_id == room.id))
     db.commit()
     return {"ok": True}
 
