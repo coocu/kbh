@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint, delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
@@ -2030,7 +2030,9 @@ def admin_page(request: Request, db: Session = Depends(get_db)):
         name="admin.html",
         context={
             "academy_name": academy.name,
+            "academy_id": academy.id,
             "admin_role": auth.get("role", "admin"),
+            "login_notice": request.query_params.get("login") == "1",
         },
     )
 
@@ -2184,7 +2186,7 @@ def admin_login(
         role = "subadmin"
         password_hash = subadmin.password_hash
 
-    response = RedirectResponse(url="/admin", status_code=303)
+    response = RedirectResponse(url="/admin?login=1", status_code=303)
     response.set_cookie(
         "kbh_admin",
         create_admin_session(academy.id, password_hash, role=role),
@@ -2208,7 +2210,7 @@ def admin_app_web_login(request: Request, db: Session = Depends(get_db)):
     else:
         credential = get_admin_credential(db, academy.id)
 
-    response = RedirectResponse(url="/admin", status_code=303)
+    response = RedirectResponse(url="/admin?login=1", status_code=303)
     response.set_cookie(
         "kbh_admin",
         create_admin_session(academy.id, credential.password_hash, role=role),
@@ -2230,6 +2232,19 @@ def admin_logout():
 # -----------------------------
 # Admin API - scoped to selected academy
 # -----------------------------
+
+@app.get("/api/admin/notice", response_class=PlainTextResponse)
+def admin_notice(request: Request):
+    auth = require_admin(request)
+    if auth.get("role", "admin") != "admin":
+        raise HTTPException(status_code=403, detail="메인 관리자만 확인할 수 있습니다.")
+
+    notice_path = BASE_DIR / "admin_notice.txt"
+    try:
+        return notice_path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
 
 @app.get("/api/admin/subadmin")
 def admin_subadmin_status(request: Request, db: Session = Depends(get_db)):

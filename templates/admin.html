@@ -688,6 +688,17 @@
   </section>
 
 
+  <div id="adminNoticeModal" class="modal-backdrop">
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="adminNoticeTitle">
+      <h2 id="adminNoticeTitle">안내</h2>
+      <div id="adminNoticeText" style="white-space:pre-wrap;line-height:1.7;margin-top:12px"></div>
+      <div class="modal-actions">
+        <button type="button" onclick="hideAdminNoticeFor7Days()">7일간 보지 않기</button>
+        <button type="button" class="primary" onclick="closeAdminNotice()">닫기</button>
+      </div>
+    </div>
+  </div>
+
   <div id="roomEditModal" class="modal-backdrop" onclick="if(event.target===this) closeRoomEditor()">
     <div class="modal-card">
       <h2>연습실 수정</h2>
@@ -1154,6 +1165,8 @@ let practiceSelectedUserId = null;
 let practiceSelectedData = null;
 let practicePendingRows = [];
 const adminRole = {{ admin_role|tojson }};
+const academyId = {{ academy_id|tojson }};
+const adminLoginNoticeRequested = {{ login_notice|tojson }};
 const allowedAdminTabs = adminRole === 'subadmin'
   ? ['members','reservations','room-status','usage','practice']
   : ['rooms','members','reservations','room-status','usage','practice','subadmin','password','backup'];
@@ -1243,6 +1256,52 @@ function switchAdminTab(tabName) {
 function restoreAdminTab() {
   const firstTab = currentVisibleTabOrder().find(tab => allowedAdminTabs.includes(tab) && document.getElementById('tab-' + tab));
   switchAdminTab(firstTab || (adminRole === 'subadmin' ? 'members' : 'rooms'));
+}
+
+function adminNoticeStorageKey() {
+  return `kbhAdminNoticeHiddenUntil:${academyId}`;
+}
+
+function closeAdminNotice() {
+  document.getElementById('adminNoticeModal')?.classList.remove('active');
+}
+
+function hideAdminNoticeFor7Days() {
+  const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+  try {
+    localStorage.setItem(adminNoticeStorageKey(), String(Date.now() + sevenDaysMs));
+  } catch (_) {}
+  closeAdminNotice();
+}
+
+async function maybeShowAdminLoginNotice() {
+  if (adminRole !== 'admin' || !adminLoginNoticeRequested) return;
+
+  // 로그인 직후 표시용 쿼리는 새로고침 때 다시 뜨지 않도록 바로 제거한다.
+  try {
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.searchParams.delete('login');
+    history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+  } catch (_) {}
+
+  let hiddenUntil = 0;
+  try {
+    hiddenUntil = Number(localStorage.getItem(adminNoticeStorageKey()) || '0');
+  } catch (_) {}
+  if (hiddenUntil > Date.now()) return;
+
+  try {
+    const response = await fetch('/api/admin/notice', {
+      cache:'no-store',
+      headers:{'Cache-Control':'no-cache'}
+    });
+    if (!response.ok) return;
+    const notice = (await response.text()).trim();
+    if (!notice) return;
+    const text = document.getElementById('adminNoticeText');
+    if (text) text.textContent = notice;
+    document.getElementById('adminNoticeModal')?.classList.add('active');
+  } catch (_) {}
 }
 
 async function api(url, options={}) {
@@ -2902,6 +2961,7 @@ function escapeHtml(v) {
 
 applyStoredTabOrder();
 restoreAdminTab();
+maybeShowAdminLoginNotice();
 ensureBlockDate();
 ensureStatusDefaults();
 renderBlockHourButtons();
