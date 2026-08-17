@@ -536,7 +536,7 @@
 <header>
   <h1>{{ academy_name }} 관리자{% if admin_role == 'subadmin' %} · 서브{% endif %}</h1>
   <div class="header-actions">
-    <button type="button" onclick="openTabOrderManager()">카테고리 정렬</button>
+    {% if admin_role == 'admin' %}<button type="button" onclick="openTabOrderManager()">카테고리 정렬</button>{% endif %}
     <form method="post" action="/admin/logout"><button>로그아웃</button></form>
   </div>
 </header>
@@ -1087,6 +1087,7 @@
       </div>
     </section>
   </section>
+  {% if admin_role == 'admin' %}
   <div id="tabOrderModal" class="modal-backdrop" onclick="if(event.target===this) closeTabOrderManager()">
     <div class="modal-card">
       <div class="member-card-head">
@@ -1101,6 +1102,7 @@
       </div>
     </div>
   </div>
+  {% endif %}
 </main>
 
 <script>
@@ -1132,6 +1134,7 @@ function currentVisibleTabOrder() {
 }
 
 function applyStoredTabOrder() {
+  if (adminRole !== 'admin') return;
   const container = document.querySelector('.admin-tabs-inner');
   if (!container) return;
   let stored = [];
@@ -1156,6 +1159,7 @@ function renderTabOrderList() {
 }
 
 function openTabOrderManager() {
+  if (adminRole !== 'admin') return;
   pendingTabOrder = currentVisibleTabOrder();
   renderTabOrderList();
   document.getElementById('tabOrderModal').classList.add('active');
@@ -1173,12 +1177,14 @@ function moveTabOrder(index, delta) {
 }
 
 function saveTabOrder() {
+  if (adminRole !== 'admin') return;
   try { localStorage.setItem(tabOrderStorageKey(), JSON.stringify(pendingTabOrder)); } catch (_) {}
   applyStoredTabOrder();
   closeTabOrderManager();
 }
 
 function resetTabOrder() {
+  if (adminRole !== 'admin') return;
   pendingTabOrder = [...allowedAdminTabs];
   renderTabOrderList();
 }
