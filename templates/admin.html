@@ -143,6 +143,33 @@
     .member-table .actions button { padding:7px 10px; }
     .member-limit-free { opacity:.65; }
     .modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:16px; }
+
+    /* 관리자 로그인 안내 팝업이 열려 있을 때 뒤 화면은 완전히 고정한다. */
+    body.admin-notice-open {
+      overflow:hidden !important;
+      overscroll-behavior:none;
+    }
+    #adminNoticeModal {
+      overscroll-behavior:contain;
+    }
+    #adminNoticeModal .modal-card {
+      display:flex;
+      flex-direction:column;
+      overflow:hidden;
+      max-height:90dvh;
+      overscroll-behavior:contain;
+    }
+    #adminNoticeText {
+      min-height:0;
+      max-height:60dvh;
+      overflow-y:auto;
+      -webkit-overflow-scrolling:touch;
+      overscroll-behavior:contain;
+      touch-action:pan-y;
+    }
+    #adminNoticeModal .modal-actions {
+      flex:0 0 auto;
+    }
     .tab-order-list { display:grid; gap:8px; margin-top:12px; }
     .tab-order-row { display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid color-mix(in srgb, CanvasText 14%, transparent); border-radius:14px; }
     .tab-order-row strong { flex:1; min-width:0; }
@@ -1262,8 +1289,56 @@ function adminNoticeStorageKey() {
   return `kbhAdminNoticeHiddenUntil:${academyId}`;
 }
 
+let adminNoticeBodyLock = null;
+
+function lockAdminNoticeBackground() {
+  if (adminNoticeBodyLock) return;
+  const body = document.body;
+  const root = document.documentElement;
+  const scrollY = window.scrollY || root.scrollTop || 0;
+
+  adminNoticeBodyLock = {
+    scrollY,
+    bodyPosition: body.style.position,
+    bodyTop: body.style.top,
+    bodyLeft: body.style.left,
+    bodyRight: body.style.right,
+    bodyWidth: body.style.width,
+    bodyOverflow: body.style.overflow,
+    rootOverflow: root.style.overflow
+  };
+
+  body.classList.add('admin-notice-open');
+  body.style.position = 'fixed';
+  body.style.top = `-${scrollY}px`;
+  body.style.left = '0';
+  body.style.right = '0';
+  body.style.width = '100%';
+  body.style.overflow = 'hidden';
+  root.style.overflow = 'hidden';
+}
+
+function unlockAdminNoticeBackground() {
+  if (!adminNoticeBodyLock) return;
+  const body = document.body;
+  const root = document.documentElement;
+  const saved = adminNoticeBodyLock;
+  adminNoticeBodyLock = null;
+
+  body.classList.remove('admin-notice-open');
+  body.style.position = saved.bodyPosition;
+  body.style.top = saved.bodyTop;
+  body.style.left = saved.bodyLeft;
+  body.style.right = saved.bodyRight;
+  body.style.width = saved.bodyWidth;
+  body.style.overflow = saved.bodyOverflow;
+  root.style.overflow = saved.rootOverflow;
+  window.scrollTo(0, saved.scrollY);
+}
+
 function closeAdminNotice() {
   document.getElementById('adminNoticeModal')?.classList.remove('active');
+  unlockAdminNoticeBackground();
 }
 
 function hideAdminNoticeFor7Days() {
@@ -1299,9 +1374,15 @@ async function maybeShowAdminLoginNotice() {
     const notice = (await response.text()).trim();
     if (!notice) return;
     const text = document.getElementById('adminNoticeText');
-    if (text) text.textContent = notice;
+    if (text) {
+      text.textContent = notice;
+      text.scrollTop = 0;
+    }
+    lockAdminNoticeBackground();
     document.getElementById('adminNoticeModal')?.classList.add('active');
-  } catch (_) {}
+  } catch (_) {
+    unlockAdminNoticeBackground();
+  }
 }
 
 async function api(url, options={}) {
