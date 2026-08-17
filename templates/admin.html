@@ -2037,7 +2037,8 @@ async function saveMemberCategoryOrder() {
     await loadMemberCategories();
     pendingMemberCategories = memberCategories.map(c => ({...c}));
     renderMemberCategoryOrderList();
-    alert('카테고리 순서가 저장되었습니다.');
+    closeCategoryManager();
+    alert('저장되었습니다.');
   } catch(e) {
     alert(e.message);
     await loadMemberCategories();
