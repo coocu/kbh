@@ -73,6 +73,26 @@ class RoomOrderPayload(BaseModel):
     room_ids: list[int]
 
 
+class NoticeManagementAuthPayload(BaseModel):
+    license_key: str = Field(min_length=1, max_length=200)
+
+
+class NoticeManagementSavePayload(NoticeManagementAuthPayload):
+    notice_type: str = Field(min_length=1, max_length=20)
+    content: str = Field(max_length=10000)
+
+
+class NoticeManagementTogglePayload(NoticeManagementAuthPayload):
+    notice_type: str = Field(min_length=1, max_length=20)
+    enabled: bool
+
+
+class NoticeManagementApplyPayload(NoticeManagementAuthPayload):
+    notice_type: str = Field(min_length=1, max_length=20)
+    content: str = Field(max_length=10000)
+    enabled: bool
+
+
 class PracticeJournalCreatePayload(BaseModel):
     content: str = Field(min_length=1, max_length=3000)
 
@@ -165,6 +185,17 @@ manual_practice_journals_table = Table(
     Column("content", Text, nullable=False),
     Column("authored_by", String(20), nullable=False, default="admin"),
     Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+# 공지 관리 앱 전용 저장소. 관리자 웹 UI에는 노출하지 않는다.
+# 기존 관리자 로그인 팝업은 아래 DB 내용을 PlainText로 받아 기존 모양 그대로 표시한다.
+notice_settings_table = Table(
+    "admin_notice_settings",
+    Base.metadata,
+    Column("notice_type", String(20), primary_key=True),
+    Column("content", Text, nullable=False, default=""),
+    Column("enabled", Integer, nullable=False, default=0),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
 
@@ -998,9 +1029,126 @@ def _migrate_legacy_single_academy():
         db.commit()
 
 
+NOTICE_TYPES = {"regular", "emergency"}
+
+
+def _normalize_notice_type(value: str) -> str:
+    notice_type = value.strip().lower()
+    if notice_type not in NOTICE_TYPES:
+        raise HTTPException(status_code=422, detail="공지 종류를 확인해 주세요.")
+    return notice_type
+
+
+def _notice_state(db: Session, notice_type: str) -> dict:
+    row = db.execute(
+        select(notice_settings_table).where(
+            notice_settings_table.c.notice_type == notice_type
+        )
+    ).mappings().first()
+    if row is None:
+        return {"enabled": False, "content": ""}
+    return {
+        "enabled": bool(row["enabled"]),
+        "content": str(row["content"] or ""),
+    }
+
+
+def _save_notice_state(
+    db: Session,
+    notice_type: str,
+    *,
+    content: str | None = None,
+    enabled: bool | None = None,
+) -> dict:
+    current = _notice_state(db, notice_type)
+    next_content = current["content"] if content is None else content
+    next_enabled = current["enabled"] if enabled is None else bool(enabled)
+    now = now_utc()
+
+    exists = db.execute(
+        select(notice_settings_table.c.notice_type).where(
+            notice_settings_table.c.notice_type == notice_type
+        )
+    ).first() is not None
+
+    if exists:
+        db.execute(
+            notice_settings_table.update()
+            .where(notice_settings_table.c.notice_type == notice_type)
+            .values(
+                content=next_content,
+                enabled=1 if next_enabled else 0,
+                updated_at=now,
+            )
+        )
+    else:
+        db.execute(
+            notice_settings_table.insert().values(
+                notice_type=notice_type,
+                content=next_content,
+                enabled=1 if next_enabled else 0,
+                updated_at=now,
+            )
+        )
+    db.commit()
+    return {"enabled": next_enabled, "content": next_content}
+
+
+def _seed_notice_settings_from_existing_files() -> None:
+    """최초 적용 시 기존 txt 공지 내용/ON-OFF 상태를 DB로 한 번만 옮긴다."""
+    sources = {
+        "regular": (BASE_DIR / "admin_notice.txt", BASE_DIR / "admin_notice_off.txt"),
+        "emergency": (
+            BASE_DIR / "admin_emergency_notice.txt",
+            BASE_DIR / "admin_emergency_notice_off.txt",
+        ),
+    }
+    with SessionLocal() as db:
+        for notice_type, (active_path, inactive_path) in sources.items():
+            exists = db.execute(
+                select(notice_settings_table.c.notice_type).where(
+                    notice_settings_table.c.notice_type == notice_type
+                )
+            ).first() is not None
+            if exists:
+                continue
+
+            enabled = False
+            content = ""
+            if active_path.exists():
+                enabled = True
+                content = active_path.read_text(encoding="utf-8").strip()
+            elif inactive_path.exists():
+                content = inactive_path.read_text(encoding="utf-8").strip()
+
+            db.execute(
+                notice_settings_table.insert().values(
+                    notice_type=notice_type,
+                    content=content,
+                    enabled=1 if enabled and bool(content) else 0,
+                    updated_at=now_utc(),
+                )
+            )
+        db.commit()
+
+
+async def _verify_notice_management_key(license_key: str) -> str:
+    candidate = license_key.strip()
+    if "kyh" not in candidate.lower():
+        raise HTTPException(status_code=403, detail="공지 관리 권한이 없는 인증키입니다.")
+    try:
+        verified = await verify_license_key(candidate)
+    except AuthNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if not verified:
+        raise HTTPException(status_code=401, detail="인증키를 확인해 주세요.")
+    return candidate
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _seed_notice_settings_from_existing_files()
     _ensure_academy_location_columns()
     _ensure_room_schedule_advance_columns()
     _migrate_legacy_single_academy()
@@ -2317,30 +2465,82 @@ def admin_logout():
 # Admin API - scoped to selected academy
 # -----------------------------
 
-@app.get("/api/admin/notice", response_class=PlainTextResponse)
-def admin_notice(request: Request):
+@app.get("/api/admin/notice", response_class=PlainTextResponse, include_in_schema=False)
+def admin_notice(request: Request, db: Session = Depends(get_db)):
     auth = require_admin(request)
     if auth.get("role", "admin") != "admin":
         raise HTTPException(status_code=403, detail="메인 관리자만 확인할 수 있습니다.")
 
-    notice_path = BASE_DIR / "admin_notice.txt"
-    try:
-        return notice_path.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        return ""
+    state = _notice_state(db, "regular")
+    return state["content"].strip() if state["enabled"] else ""
 
 
-@app.get("/api/admin/emergency-notice", response_class=PlainTextResponse)
-def admin_emergency_notice(request: Request):
+@app.get("/api/admin/emergency-notice", response_class=PlainTextResponse, include_in_schema=False)
+def admin_emergency_notice(request: Request, db: Session = Depends(get_db)):
     auth = require_admin(request)
     if auth.get("role", "admin") != "admin":
         raise HTTPException(status_code=403, detail="메인 관리자만 확인할 수 있습니다.")
 
-    notice_path = BASE_DIR / "admin_emergency_notice.txt"
-    try:
-        return notice_path.read_text(encoding="utf-8").strip()
-    except FileNotFoundError:
-        return ""
+    state = _notice_state(db, "emergency")
+    return state["content"].strip() if state["enabled"] else ""
+
+
+# 아래 API는 '뮤싱크 공지' 앱 전용이다. 관리자 웹 화면/메뉴에는 연결하지 않는다.
+# 상태 조회는 인증키 없이 가능하지만, 서버에 쓰는 동작은 모두 kyh 포함 실제 유효 인증키가 필요하다.
+@app.get("/api/notice-management/state", include_in_schema=False)
+def notice_management_state(db: Session = Depends(get_db)):
+    return {
+        "regular": _notice_state(db, "regular"),
+        "emergency": _notice_state(db, "emergency"),
+    }
+
+
+@app.post("/api/notice-management/save", include_in_schema=False)
+async def notice_management_save(
+    payload: NoticeManagementSavePayload,
+    db: Session = Depends(get_db),
+):
+    await _verify_notice_management_key(payload.license_key)
+    notice_type = _normalize_notice_type(payload.notice_type)
+    # 일반 텍스트와 줄바꿈만 저장한다. HTML/서식은 사용하지 않는다.
+    content = payload.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="공지 내용을 입력해 주세요.")
+    state = _save_notice_state(db, notice_type, content=content)
+    return {"notice_type": notice_type, **state}
+
+
+@app.post("/api/notice-management/toggle", include_in_schema=False)
+async def notice_management_toggle(
+    payload: NoticeManagementTogglePayload,
+    db: Session = Depends(get_db),
+):
+    await _verify_notice_management_key(payload.license_key)
+    notice_type = _normalize_notice_type(payload.notice_type)
+    current = _notice_state(db, notice_type)
+    if payload.enabled and not current["content"].strip():
+        raise HTTPException(status_code=422, detail="공지 내용을 먼저 저장해 주세요.")
+    state = _save_notice_state(db, notice_type, enabled=payload.enabled)
+    return {"notice_type": notice_type, **state}
+
+
+@app.post("/api/notice-management/apply", include_in_schema=False)
+async def notice_management_apply(
+    payload: NoticeManagementApplyPayload,
+    db: Session = Depends(get_db),
+):
+    await _verify_notice_management_key(payload.license_key)
+    notice_type = _normalize_notice_type(payload.notice_type)
+    content = payload.content.strip()
+    if payload.enabled and not content:
+        raise HTTPException(status_code=422, detail="공지 내용을 입력해 주세요.")
+    state = _save_notice_state(
+        db,
+        notice_type,
+        content=content,
+        enabled=payload.enabled,
+    )
+    return {"notice_type": notice_type, **state}
 
 
 @app.get("/api/admin/subadmin")
