@@ -2621,6 +2621,7 @@ async function saveMemberEdit() {
 }
 
 async function deleteAuthorizedUser(id, name) {
+  if (adminRole === 'subadmin') return alert('서브관리자는 회원을 삭제할 수 없습니다.');
   if (!confirm(name+'의 앱 로그인을 해제하시겠습니까?')) return;
   try {
     await api('/api/admin/users/'+id, {method:'DELETE'});
