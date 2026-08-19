@@ -579,7 +579,7 @@
 <header>
   <h1>{{ academy_name }} 관리자{% if admin_role == 'subadmin' %} · 서브{% endif %}</h1>
   <div class="header-actions">
-    {% if admin_role == 'admin' %}<button type="button" onclick="openTabOrderManager()">카테고리 정렬</button>{% endif %}
+    <button type="button" onclick="openTabOrderManager()">카테고리 정렬</button>
     <form method="post" action="/admin/logout"><button>로그아웃</button></form>
   </div>
 </header>
@@ -1176,7 +1176,6 @@
       </div>
     </section>
   </section>
-  {% if admin_role == 'admin' %}
   <div id="tabOrderModal" class="modal-backdrop" onclick="if(event.target===this) closeTabOrderManager()">
     <div class="modal-card">
       <div class="member-card-head">
@@ -1191,7 +1190,6 @@
       </div>
     </div>
   </div>
-  {% endif %}
 </main>
 
 <script>
@@ -1228,7 +1226,6 @@ function currentVisibleTabOrder() {
 }
 
 function applyStoredTabOrder() {
-  if (adminRole !== 'admin') return;
   const container = document.querySelector('.admin-tabs-inner');
   if (!container) return;
   let stored = [];
@@ -1253,7 +1250,6 @@ function renderTabOrderList() {
 }
 
 function openTabOrderManager() {
-  if (adminRole !== 'admin') return;
   pendingTabOrder = currentVisibleTabOrder();
   renderTabOrderList();
   document.getElementById('tabOrderModal').classList.add('active');
@@ -1271,14 +1267,12 @@ function moveTabOrder(index, delta) {
 }
 
 function saveTabOrder() {
-  if (adminRole !== 'admin') return;
   try { localStorage.setItem(tabOrderStorageKey(), JSON.stringify(pendingTabOrder)); } catch (_) {}
   applyStoredTabOrder();
   closeTabOrderManager();
 }
 
 function resetTabOrder() {
-  if (adminRole !== 'admin') return;
   pendingTabOrder = [...allowedAdminTabs];
   renderTabOrderList();
 }
@@ -2621,7 +2615,6 @@ async function saveMemberEdit() {
 }
 
 async function deleteAuthorizedUser(id, name) {
-  if (adminRole === 'subadmin') return alert('서브관리자는 회원을 삭제할 수 없습니다.');
   if (!confirm(name+'의 앱 로그인을 해제하시겠습니까?')) return;
   try {
     await api('/api/admin/users/'+id, {method:'DELETE'});
