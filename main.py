@@ -758,26 +758,31 @@ def _schedule_blocks_for_range(
     return rows
 
 
-def _member_remaining_reserved_hours(
+def _member_reserved_hours_for_day(
     db: Session,
     user: AuthorizedUser,
-    now: datetime,
+    target_day: date,
     exclude_reservation_id: str | None = None,
 ) -> float:
+    day_start, next_day = _local_day_bounds(target_day)
+    day_start_utc = day_start.astimezone(timezone.utc)
+    next_day_utc = next_day.astimezone(timezone.utc)
+
     stmt = select(Reservation).where(
         Reservation.academy_id == user.academy_id,
         Reservation.nickname == user.name,
         Reservation.phone_last4 == user.phone_last4,
         Reservation.cancelled_at.is_(None),
-        Reservation.end_at > now,
+        Reservation.start_at < next_day_utc,
+        Reservation.end_at > day_start_utc,
     )
     if exclude_reservation_id is not None:
         stmt = stmt.where(Reservation.id != exclude_reservation_id)
 
     total_seconds = 0.0
     for reservation in db.scalars(stmt).all():
-        start_at = max(_aware_utc(reservation.start_at), now)
-        end_at = _aware_utc(reservation.end_at)
+        start_at = max(_aware_utc(reservation.start_at), day_start_utc)
+        end_at = min(_aware_utc(reservation.end_at), next_day_utc)
         if end_at > start_at:
             total_seconds += (end_at - start_at).total_seconds()
     return total_seconds / 3600.0
@@ -805,11 +810,11 @@ def _enforce_member_booking_policy(
     if policy.allow_additional_booking:
         return
 
-    now = now_utc()
-    reserved = _member_remaining_reserved_hours(
+    target_day = _aware_utc(start_at).astimezone(BOOKING_TIMEZONE).date()
+    reserved = _member_reserved_hours_for_day(
         db,
         user,
-        now,
+        target_day,
         exclude_reservation_id=exclude_reservation_id,
     )
     if reserved + duration > limit + 1e-9:
@@ -817,11 +822,11 @@ def _enforce_member_booking_policy(
         if available <= 1e-9:
             raise HTTPException(
                 status_code=409,
-                detail=f"현재 예약 가능한 {policy.booking_limit_hours}시간을 모두 사용 중입니다. 기존 예약시간이 지나면 다시 예약할 수 있습니다.",
+                detail=f"선택한 날짜의 예약 가능한 {policy.booking_limit_hours}시간을 모두 사용했습니다.",
             )
         raise HTTPException(
             status_code=409,
-            detail=f"현재 추가로 예약 가능한 시간은 최대 {available:g}시간입니다. 기존 예약시간이 지나면 예약 가능 시간이 다시 늘어납니다.",
+            detail=f"선택한 날짜에 추가로 예약 가능한 시간은 최대 {available:g}시간입니다.",
         )
 
 
