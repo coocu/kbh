@@ -139,5 +139,5 @@ class RoomSchedule(Base):
     advance_booking_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     advance_booking_open_hour: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     advance_booking_days: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    operating_days: Mapped[int] = mapped_column(Integer, default=127, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
-

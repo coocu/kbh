@@ -118,6 +118,7 @@ class RoomCreate(BaseModel):
     advance_booking_enabled: bool = False
     advance_booking_open_hour: int = Field(default=20, ge=0, le=23)
     advance_booking_days: int = Field(default=1, ge=1, le=90)
+    operating_days: int = Field(default=127, ge=0, le=127)
 
     @model_validator(mode="after")
     def validate_hours(self):
@@ -135,6 +136,7 @@ class RoomUpdate(BaseModel):
     advance_booking_enabled: bool | None = None
     advance_booking_open_hour: int | None = Field(default=None, ge=0, le=23)
     advance_booking_days: int | None = Field(default=None, ge=1, le=90)
+    operating_days: int | None = Field(default=None, ge=0, le=127)
 
 
 class ReservationCreate(BaseModel):

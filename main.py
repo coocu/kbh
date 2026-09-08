@@ -241,6 +241,7 @@ def _validate_academy_location(region: str, district: str) -> tuple[str, str]:
 
 BOOKING_TIMEZONE_NAME = os.getenv("BOOKING_TIMEZONE", "Asia/Seoul").strip() or "Asia/Seoul"
 BOOKING_TIMEZONE = ZoneInfo(BOOKING_TIMEZONE_NAME)
+ALL_OPERATING_DAYS = 127
 
 # 이용 중 조기 종료는 기존 DB 스키마를 변경하지 않기 위해 cancel_reason에
 # 내부 마커를 붙여 저장한다. cancelled_at은 설정하지 않으므로 취소 예약과 구분된다.
@@ -446,6 +447,12 @@ def _advance_booking_values(schedule: RoomSchedule | None) -> tuple[bool, int, i
     )
 
 
+def _operating_days_value(schedule: RoomSchedule | None) -> int:
+    if schedule is None:
+        return ALL_OPERATING_DAYS
+    return int(schedule.operating_days)
+
+
 def room_dict(room: Room, schedule: RoomSchedule | None = None) -> dict:
     open_hour, close_hour = _schedule_values(schedule)
     advance_enabled, advance_open_hour, advance_days = _advance_booking_values(schedule)
@@ -459,6 +466,7 @@ def room_dict(room: Room, schedule: RoomSchedule | None = None) -> dict:
         "advance_booking_enabled": advance_enabled,
         "advance_booking_open_hour": advance_open_hour,
         "advance_booking_days": advance_days,
+        "operating_days": _operating_days_value(schedule),
     }
 
 
@@ -517,6 +525,7 @@ def _get_room_schedule(db: Session, room: Room, create: bool = False) -> RoomSch
             advance_booking_enabled=False,
             advance_booking_open_hour=20,
             advance_booking_days=1,
+            operating_days=ALL_OPERATING_DAYS,
         )
         db.add(schedule)
         db.flush()
@@ -564,11 +573,19 @@ def _room_open_bounds(day: date, open_hour: int, close_hour: int) -> tuple[datet
     return open_at, close_at
 
 
+def _is_room_operating_day(start_at: datetime, schedule: RoomSchedule | None) -> bool:
+    local_start = _aware_utc(start_at).astimezone(BOOKING_TIMEZONE)
+    day_index = (local_start.weekday() + 1) % 7  # 일요일=0, 월요일=1, ..., 토요일=6
+    return bool(_operating_days_value(schedule) & (1 << day_index))
+
+
 def _is_within_room_schedule(
     start_at: datetime,
     end_at: datetime,
     schedule: RoomSchedule | None,
 ) -> bool:
+    if not _is_room_operating_day(start_at, schedule):
+        return False
     open_hour, close_hour = _schedule_values(schedule)
     local_start = _aware_utc(start_at).astimezone(BOOKING_TIMEZONE)
     local_end = _aware_utc(end_at).astimezone(BOOKING_TIMEZONE)
@@ -576,7 +593,9 @@ def _is_within_room_schedule(
     return local_start >= open_at and local_end <= close_at and local_end > local_start
 
 
-def _operating_hours_error(schedule: RoomSchedule | None) -> str:
+def _operating_hours_error(schedule: RoomSchedule | None, start_at: datetime | None = None) -> str:
+    if start_at is not None and not _is_room_operating_day(start_at, schedule):
+        return "선택한 날짜는 이 연습실의 비운영일입니다."
     open_hour, close_hour = _schedule_values(schedule)
     return f"이 연습실의 운영시간은 {open_hour:02d}:00 ~ {close_hour:02d}:00입니다."
 
@@ -679,7 +698,8 @@ def _schedule_blocks_for_range(
     to_at: datetime,
 ) -> list[dict]:
     open_hour, close_hour = _schedule_values(schedule)
-    if open_hour == 0 and close_hour == 24:
+    operating_days = _operating_days_value(schedule)
+    if open_hour == 0 and close_hour == 24 and operating_days == ALL_OPERATING_DAYS:
         return []
 
     local_from = _aware_utc(from_at).astimezone(BOOKING_TIMEZONE)
@@ -691,6 +711,22 @@ def _schedule_blocks_for_range(
     while day <= last_day:
         day_start, next_day = _local_day_bounds(day)
         open_at, close_at = _room_open_bounds(day, open_hour, close_hour)
+        day_index = (day.weekday() + 1) % 7
+
+        if not operating_days & (1 << day_index):
+            start = max(day_start, local_from)
+            end = min(next_day, local_to)
+            if end > start:
+                rows.append({
+                    "id": f"schedule-{room.id}-{day.isoformat()}-closed",
+                    "room_id": room.id,
+                    "start_at": start.astimezone(timezone.utc),
+                    "end_at": end.astimezone(timezone.utc),
+                    "reason": "비운영일",
+                    "system_generated": True,
+                })
+            day += timedelta(days=1)
+            continue
 
         if open_at > day_start:
             start = max(day_start, local_from)
@@ -885,8 +921,8 @@ def _ensure_academy_location_columns() -> None:
             connection.execute(text(statement))
 
 
-def _ensure_room_schedule_advance_columns() -> None:
-    """기존 Render DB의 운영시간 테이블에 사전예약 컬럼만 안전하게 추가한다."""
+def _ensure_room_schedule_columns() -> None:
+    """기존 Render DB의 운영시간 테이블에 새 설정 컬럼을 안전하게 추가한다."""
     inspector = inspect(engine)
     if "academy_room_schedules" not in set(inspector.get_table_names()):
         return
@@ -910,6 +946,11 @@ def _ensure_room_schedule_advance_columns() -> None:
         statements.append(
             "ALTER TABLE academy_room_schedules "
             "ADD COLUMN advance_booking_days INTEGER NOT NULL DEFAULT 1"
+        )
+    if "operating_days" not in existing_columns:
+        statements.append(
+            "ALTER TABLE academy_room_schedules "
+            "ADD COLUMN operating_days INTEGER NOT NULL DEFAULT 127"
         )
 
     if not statements:
@@ -1150,7 +1191,7 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     _seed_notice_settings_from_existing_files()
     _ensure_academy_location_columns()
-    _ensure_room_schedule_advance_columns()
+    _ensure_room_schedule_columns()
     _migrate_legacy_single_academy()
 
     if os.getenv("RENDER") == "true":
@@ -1679,7 +1720,7 @@ def create_reservation(
         schedule = _get_room_schedule(db, room, create=False)
         _enforce_member_room_booking_window(start, end, schedule, now)
         if not _is_within_room_schedule(start, end, schedule):
-            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule, start))
 
         conflict_reservation = db.scalar(
             select(Reservation).where(
@@ -1834,7 +1875,7 @@ def update_my_reservation(
         schedule = _get_room_schedule(db, room, create=False)
         _enforce_member_room_booking_window(start, end, schedule, current)
         if not _is_within_room_schedule(start, end, schedule):
-            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule, start))
 
         conflict_reservation = db.scalar(
             select(Reservation).where(
@@ -1942,7 +1983,7 @@ def move_my_reservation(
 
         schedule = _get_room_schedule(db, room, create=False)
         if not _is_within_room_schedule(move_start, reservation_end, schedule):
-            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule, move_start))
 
         conflict_reservation = db.scalar(
             select(Reservation).where(
@@ -2897,7 +2938,7 @@ def admin_create_member_reservation(
 
         schedule = _get_room_schedule(db, room, create=False)
         if not _is_within_room_schedule(start, end, schedule):
-            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule, start))
 
         conflict_reservation = db.scalar(
             select(Reservation).where(
@@ -3290,10 +3331,13 @@ def _validate_operational_backup(payload: dict) -> dict:
             raise HTTPException(status_code=422, detail="백업 파일의 연습실 운영시간이 올바르지 않습니다.")
         advance_open_hour = row.get("advance_booking_open_hour", 20)
         advance_days = row.get("advance_booking_days", 1)
+        operating_days = row.get("operating_days", ALL_OPERATING_DAYS)
         if not isinstance(advance_open_hour, int) or not (0 <= advance_open_hour <= 23):
             raise HTTPException(status_code=422, detail="백업 파일의 사전예약 오픈시간이 올바르지 않습니다.")
         if not isinstance(advance_days, int) or not (1 <= advance_days <= 90):
             raise HTTPException(status_code=422, detail="백업 파일의 사전예약 일수가 올바르지 않습니다.")
+        if not isinstance(operating_days, int) or not (0 <= operating_days <= ALL_OPERATING_DAYS):
+            raise HTTPException(status_code=422, detail="백업 파일의 연습실 운영일이 올바르지 않습니다.")
         _backup_datetime(row.get("updated_at"), "연습실 운영시간 수정일")
 
     for row in reservations:
@@ -3401,6 +3445,7 @@ def _build_operational_backup(db: Session, academy_id: int) -> dict:
                     "advance_booking_enabled": bool(row.advance_booking_enabled),
                     "advance_booking_open_hour": row.advance_booking_open_hour,
                     "advance_booking_days": row.advance_booking_days,
+                    "operating_days": row.operating_days,
                     "updated_at": _backup_iso(row.updated_at),
                 }
                 for row in schedules
@@ -3603,6 +3648,7 @@ async def admin_restore_backup(
                 advance_booking_enabled=bool(source.get("advance_booking_enabled", False)),
                 advance_booking_open_hour=int(source.get("advance_booking_open_hour", 20)),
                 advance_booking_days=int(source.get("advance_booking_days", 1)),
+                operating_days=int(source.get("operating_days", ALL_OPERATING_DAYS)),
                 updated_at=_backup_datetime(source["updated_at"], "연습실 운영시간 수정일"),
             ))
 
@@ -3782,6 +3828,7 @@ def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depen
             schedule.advance_booking_enabled = payload.advance_booking_enabled
             schedule.advance_booking_open_hour = payload.advance_booking_open_hour
             schedule.advance_booking_days = payload.advance_booking_days
+            schedule.operating_days = payload.operating_days
             schedule.updated_at = now_utc()
             db.commit()
             db.refresh(existing)
@@ -3801,6 +3848,7 @@ def admin_create_room(payload: RoomCreate, request: Request, db: Session = Depen
             advance_booking_enabled=payload.advance_booking_enabled,
             advance_booking_open_hour=payload.advance_booking_open_hour,
             advance_booking_days=payload.advance_booking_days,
+            operating_days=payload.operating_days,
         )
         db.add(schedule)
         db.commit()
@@ -3850,6 +3898,8 @@ def admin_update_room(
         schedule.advance_booking_open_hour = payload.advance_booking_open_hour
     if payload.advance_booking_days is not None:
         schedule.advance_booking_days = payload.advance_booking_days
+    if payload.operating_days is not None:
+        schedule.operating_days = payload.operating_days
     schedule.updated_at = now_utc()
 
     try:
@@ -3946,7 +3996,7 @@ def admin_update_reservation(
 
         schedule = _get_room_schedule(db, room, create=False)
         if not _is_within_room_schedule(start, end, schedule):
-            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule))
+            raise HTTPException(status_code=409, detail=_operating_hours_error(schedule, start))
 
         conflict_reservation = db.scalar(
             select(Reservation).where(

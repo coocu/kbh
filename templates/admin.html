@@ -108,6 +108,9 @@
     #userCategory { height:42px; min-height:42px; }
     .inline-check { display:flex; gap:7px; align-items:center; min-height:42px; }
     .inline-check input { width:auto; }
+    .weekday-checks { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:8px; margin-top:10px; }
+    .weekday-check { display:flex; flex-direction:column; align-items:center; gap:7px; font-weight:700; }
+    .weekday-check input { width:20px; height:20px; min-height:20px; margin:0; padding:0; }
     .modal-backdrop {
       position:fixed; inset:0; z-index:20; display:none;
       align-items:center; justify-content:center; padding:18px;
@@ -781,6 +784,19 @@
           </div>
         </div>
         <div class="muted" style="margin-top:8px">예: 20:00 / 3일 → 매일 20:00 이후 다음날부터 3일치 예약이 가능합니다. 20:00 전에는 당일만 예약할 수 있고, 당일 예약은 항상 가능합니다.</div>
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid color-mix(in srgb, CanvasText 12%, transparent)">
+        <div style="font-weight:700">운영일</div>
+        <div id="editRoomOperatingDays" class="weekday-checks">
+          <label class="weekday-check"><span>일</span><input class="edit-room-operating-day" type="checkbox" value="1" checked></label>
+          <label class="weekday-check"><span>월</span><input class="edit-room-operating-day" type="checkbox" value="2" checked></label>
+          <label class="weekday-check"><span>화</span><input class="edit-room-operating-day" type="checkbox" value="4" checked></label>
+          <label class="weekday-check"><span>수</span><input class="edit-room-operating-day" type="checkbox" value="8" checked></label>
+          <label class="weekday-check"><span>목</span><input class="edit-room-operating-day" type="checkbox" value="16" checked></label>
+          <label class="weekday-check"><span>금</span><input class="edit-room-operating-day" type="checkbox" value="32" checked></label>
+          <label class="weekday-check"><span>토</span><input class="edit-room-operating-day" type="checkbox" value="64" checked></label>
+        </div>
+        <div class="muted" style="margin-top:8px">예: 월~금만 체크하면 토·일은 비운영일로 설정되어 앱과 웹에서 예약할 수 없습니다.</div>
       </div>
       <div class="modal-actions">
         <button type="button" onclick="closeRoomEditor()">취소</button>
@@ -1648,11 +1664,19 @@ function isoOverlapsHour(startISO, endISO, dateKey, hour) {
   return start < hourEnd && end > hourStart;
 }
 
+function roomOperatesOnDate(room, dateKey) {
+  const parts = String(dateKey || '').split('-').map(Number);
+  if (parts.length !== 3 || parts.some(value => !Number.isInteger(value))) return false;
+  const dayIndex = new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0, 0).getDay();
+  const operatingDays = Number.isInteger(room?.operating_days) ? room.operating_days : 127;
+  return Boolean(operatingDays & (1 << dayIndex));
+}
+
 function roomHourState(room, dateKey, hour) {
   const openHour = room.open_hour ?? 0;
   const closeHour = room.close_hour ?? 24;
 
-  if (room.is_paused || hour < openHour || hour >= closeHour) return 'blocked';
+  if (room.is_paused || !roomOperatesOnDate(room, dateKey) || hour < openHour || hour >= closeHour) return 'blocked';
 
   const blocked = blockRows.some(b =>
     Number(b.room_id) === Number(room.id) &&
@@ -2024,6 +2048,10 @@ function openRoomEditor(id) {
   document.getElementById('editRoomAdvanceEnabled').checked = Boolean(room.advance_booking_enabled);
   document.getElementById('editRoomAdvanceOpenHour').innerHTML = hourSelectOptions(0, 23, room.advance_booking_open_hour ?? 20);
   document.getElementById('editRoomAdvanceDays').value = room.advance_booking_days ?? 1;
+  const operatingDays = Number.isInteger(room.operating_days) ? room.operating_days : 127;
+  document.querySelectorAll('.edit-room-operating-day').forEach(input => {
+    input.checked = Boolean(operatingDays & Number(input.value));
+  });
   syncEditRoomAdvanceFields();
   document.getElementById('roomEditModal').classList.add('active');
 }
@@ -2046,6 +2074,10 @@ async function saveRoomEdit() {
   const advance_booking_enabled = document.getElementById('editRoomAdvanceEnabled').checked;
   const advance_booking_open_hour = Number(document.getElementById('editRoomAdvanceOpenHour').value);
   const advance_booking_days = Number(document.getElementById('editRoomAdvanceDays').value);
+  const operating_days = Array.from(document.querySelectorAll('.edit-room-operating-day')).reduce(
+    (mask, input) => input.checked ? mask | Number(input.value) : mask,
+    0
+  );
 
   if (!id) return alert('연습실 정보를 찾을 수 없습니다.');
   if (!name) return alert('연습실 이름을 입력해 주세요.');
@@ -2065,6 +2097,7 @@ async function saveRoomEdit() {
         advance_booking_enabled,
         advance_booking_open_hour,
         advance_booking_days,
+        operating_days,
       })
     });
     closeRoomEditor();
@@ -2456,7 +2489,7 @@ function toggleMemberReservationHour(hour) {
   const now = new Date();
   const openHour = Number(room.open_hour ?? 0);
   const closeHour = Number(room.close_hour ?? 24);
-  if (room.is_paused || hour < openHour || hour >= closeHour || start < now || memberReservationOverlap(start, end, roomId)) return;
+  if (room.is_paused || !roomOperatesOnDate(room, dateKey) || hour < openHour || hour >= closeHour || start < now || memberReservationOverlap(start, end, roomId)) return;
 
   const next = new Set(selectedMemberReservationHours);
   if (next.has(hour)) next.delete(hour); else next.add(hour);
@@ -2487,7 +2520,7 @@ function renderMemberReservationHours() {
       const openHour = Number(room.open_hour ?? 0);
       const closeHour = Number(room.close_hour ?? 24);
       reserved = memberReservationOverlap(start, end, roomId);
-      disabled = room.is_paused || hour < openHour || hour >= closeHour || start < now || reserved;
+      disabled = room.is_paused || !roomOperatesOnDate(room, dateKey) || hour < openHour || hour >= closeHour || start < now || reserved;
     }
     const selected = selectedMemberReservationHours.has(hour);
     return `<button type="button" class="hour-button member-booking-hour ${selected?'selected':''} ${disabled?'disabled':''} ${reserved?'reserved':''}" ${disabled?'disabled':''} onclick="toggleMemberReservationHour(${hour})">${String(hour).padStart(2,'0')}시</button>`;
