@@ -14,6 +14,8 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request,
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint, delete, func, inspect, select, text
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
@@ -89,6 +91,16 @@ class NoticeManagementTogglePayload(NoticeManagementAuthPayload):
 
 class NoticeManagementApplyPayload(NoticeManagementAuthPayload):
     notice_type: str = Field(min_length=1, max_length=20)
+    content: str = Field(max_length=10000)
+    enabled: bool
+
+
+class AcademyNoticeManagementPayload(BaseModel):
+    registration_token: str = Field(min_length=1)
+    academy_id: int = Field(gt=0)
+
+
+class AcademyNoticeManagementApplyPayload(AcademyNoticeManagementPayload):
     content: str = Field(max_length=10000)
     enabled: bool
 
@@ -194,6 +206,16 @@ notice_settings_table = Table(
     "admin_notice_settings",
     Base.metadata,
     Column("notice_type", String(20), primary_key=True),
+    Column("content", Text, nullable=False, default=""),
+    Column("enabled", Integer, nullable=False, default=0),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+# 학원별 관리자 공지. 기존 전체공지 저장소와 분리해 전체공지 동작을 유지한다.
+academy_notice_settings_table = Table(
+    "academy_admin_notice_settings",
+    Base.metadata,
+    Column("academy_id", Integer, ForeignKey("academies.id", ondelete="CASCADE"), primary_key=True),
     Column("content", Text, nullable=False, default=""),
     Column("enabled", Integer, nullable=False, default=0),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -1140,6 +1162,63 @@ def _save_notice_state(
     return {"enabled": next_enabled, "content": next_content}
 
 
+def _academy_notice_state(db: Session, academy_id: int) -> dict:
+    row = db.execute(
+        select(academy_notice_settings_table).where(
+            academy_notice_settings_table.c.academy_id == academy_id
+        )
+    ).mappings().first()
+    if row is None:
+        return {"academy_id": academy_id, "content": "", "enabled": False}
+    return {
+        "academy_id": academy_id,
+        "content": str(row["content"] or ""),
+        "enabled": bool(row["enabled"]),
+    }
+
+
+def _save_academy_notice_state(
+    db: Session,
+    academy_id: int,
+    *,
+    content: str,
+    enabled: bool,
+) -> dict:
+    values = {
+        "content": content,
+        "enabled": 1 if enabled else 0,
+        "updated_at": now_utc(),
+    }
+    insert_values = {"academy_id": academy_id, **values}
+    dialect_name = db.get_bind().dialect.name
+    if dialect_name == "postgresql":
+        statement = postgresql_insert(academy_notice_settings_table).values(**insert_values)
+        db.execute(
+            statement.on_conflict_do_update(
+                index_elements=[academy_notice_settings_table.c.academy_id],
+                set_=values,
+            )
+        )
+    elif dialect_name == "sqlite":
+        statement = sqlite_insert(academy_notice_settings_table).values(**insert_values)
+        db.execute(
+            statement.on_conflict_do_update(
+                index_elements=[academy_notice_settings_table.c.academy_id],
+                set_=values,
+            )
+        )
+    else:
+        updated = db.execute(
+            academy_notice_settings_table.update()
+            .where(academy_notice_settings_table.c.academy_id == academy_id)
+            .values(**values)
+        )
+        if not updated.rowcount:
+            db.execute(academy_notice_settings_table.insert().values(**insert_values))
+    db.commit()
+    return {"academy_id": academy_id, "content": content, "enabled": bool(enabled)}
+
+
 def _seed_notice_settings_from_existing_files() -> None:
     """최초 적용 시 기존 txt 공지 내용/ON-OFF 상태를 DB로 한 번만 옮긴다."""
     sources = {
@@ -1390,6 +1469,34 @@ def set_academy_status(payload: AcademyStatusRequest, db: Session = Depends(get_
     return academy_management_dict(academy)
 
 
+@app.post("/api/v1/academy-management/notice")
+def academy_notice_for_management(
+    payload: AcademyNoticeManagementPayload,
+    db: Session = Depends(get_db),
+):
+    verify_academy_management_token(payload.registration_token)
+    _get_academy_for_management(db, payload.academy_id)
+    return _academy_notice_state(db, payload.academy_id)
+
+
+@app.post("/api/v1/academy-management/notice/apply")
+def apply_academy_notice_for_management(
+    payload: AcademyNoticeManagementApplyPayload,
+    db: Session = Depends(get_db),
+):
+    verify_academy_management_token(payload.registration_token)
+    _get_academy_for_management(db, payload.academy_id)
+    content = payload.content.strip()
+    if payload.enabled and not content:
+        raise HTTPException(status_code=422, detail="공지 내용을 입력해 주세요.")
+    return _save_academy_notice_state(
+        db,
+        payload.academy_id,
+        content=content,
+        enabled=payload.enabled,
+    )
+
+
 @app.post("/api/v1/academy-management/delete")
 def delete_academy(payload: AcademyDeleteRequest, db: Session = Depends(get_db)):
     # 학원관리 팝업 진입 시 받은 전용 토큰을 사용하므로 내부 기능에서는 인증키를 다시 묻지 않는다.
@@ -1405,6 +1512,7 @@ def delete_academy(payload: AcademyDeleteRequest, db: Session = Depends(get_db))
     db.execute(delete(MemberPolicy).where(MemberPolicy.academy_id == academy.id))
     db.execute(delete(MemberCategory).where(MemberCategory.academy_id == academy.id))
     db.execute(delete(AuthorizedUser).where(AuthorizedUser.academy_id == academy.id))
+    db.execute(delete(academy_notice_settings_table).where(academy_notice_settings_table.c.academy_id == academy.id))
     db.execute(delete(AdminCredential).where(AdminCredential.academy_id == academy.id))
     db.execute(delete(RoomSchedule).where(RoomSchedule.academy_id == academy.id))
     db.execute(delete(Room).where(Room.academy_id == academy.id))
@@ -2518,7 +2626,20 @@ def admin_notice(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="메인 관리자만 확인할 수 있습니다.")
 
     state = _notice_state(db, "regular")
-    return state["content"].strip() if state["enabled"] else ""
+    notices = [state["content"].strip()] if state["enabled"] and state["content"].strip() else []
+
+    # 기존 앱이 일반공지 API만 호출하는 경우에도 앱 수정 없이 자기 학원 공지를 받는다.
+    # 웹 화면은 학원 공지를 별도 API로 표시하므로 앱 Bearer 토큰일 때만 합친다.
+    if auth.get("scope") == "admin_app":
+        academy_state = _academy_notice_state(db, auth["academy_id"])
+        academy_content = academy_state["content"].strip()
+        if academy_state["enabled"] and academy_content:
+            notices.append(academy_content)
+
+    return PlainTextResponse(
+        "\n\n".join(notices),
+        headers={"Cache-Control": "private, no-store", "Vary": "Authorization, Cookie"},
+    )
 
 
 @app.get("/api/admin/emergency-notice", response_class=PlainTextResponse, include_in_schema=False)
@@ -2529,6 +2650,22 @@ def admin_emergency_notice(request: Request, db: Session = Depends(get_db)):
 
     state = _notice_state(db, "emergency")
     return state["content"].strip() if state["enabled"] else ""
+
+
+@app.get("/api/admin/academy-notice", response_class=PlainTextResponse, include_in_schema=False)
+def academy_admin_notice(request: Request, db: Session = Depends(get_db)):
+    auth = require_admin(request)
+    if auth.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="메인 관리자만 사용할 수 있는 기능입니다.")
+    academy_id = auth.get("academy_id")
+    if not isinstance(academy_id, int):
+        raise HTTPException(status_code=401, detail="관리자 로그인을 다시 해 주세요.")
+    state = _academy_notice_state(db, academy_id)
+    content = state["content"].strip() if state["enabled"] else ""
+    return PlainTextResponse(
+        content,
+        headers={"Cache-Control": "private, no-store", "Vary": "Authorization, Cookie"},
+    )
 
 
 # 아래 API는 '뮤싱크 공지' 앱 전용이다. 관리자 웹 화면/메뉴에는 연결하지 않는다.

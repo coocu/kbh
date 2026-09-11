@@ -12,8 +12,9 @@
     .card { width:min(430px,100%); border:1px solid color-mix(in srgb,CanvasText 20%,transparent); border-radius:24px; padding:28px; box-shadow:0 16px 50px rgba(0,0,0,.12); }
     h1 { margin:0 0 6px; font-size:28px; }
     p { margin:0 0 24px; opacity:.7; }
-    input,select,button { width:100%; border-radius:14px; font-size:17px; padding:14px 16px; border:1px solid color-mix(in srgb,CanvasText 25%,transparent); background:Canvas; color:CanvasText; }
-    input,select { margin-bottom:12px; }
+    input,select,textarea,button { width:100%; border-radius:14px; font:inherit; font-size:17px; padding:14px 16px; border:1px solid color-mix(in srgb,CanvasText 25%,transparent); background:Canvas; color:CanvasText; }
+    input,select,textarea { margin-bottom:12px; }
+    textarea { min-height:180px; resize:vertical; line-height:1.55; }
     button { cursor:pointer; }
     button.primary { border-color:#0a84ff; background:#0a84ff; color:#fff; font-weight:700; }
     button.secondary { margin-top:10px; background:transparent; color:#0a84ff; border-color:color-mix(in srgb,#0a84ff 55%,transparent); font-weight:700; }
@@ -47,6 +48,10 @@
     .academy-location-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .academy-location-row select { min-width:0; }
     .academy-action-fields.hidden { display:none; }
+    .academy-action-notice-fields.hidden { display:none; }
+    .academy-notice-toggle { display:flex; align-items:center; gap:9px; margin:0 0 8px; font-size:15px; }
+    .academy-notice-toggle input { width:auto; margin:0; }
+    .academy-notice-help { margin-bottom:0; }
     .academy-search-results { max-height:210px; overflow:auto; margin:-4px 0 12px; border:1px solid color-mix(in srgb,CanvasText 18%,transparent); border-radius:14px; padding:6px; }
     .academy-search-result { display:block; width:100%; text-align:left; border:0; border-radius:10px; padding:10px 11px; background:transparent; color:CanvasText; font-size:15px; }
     .academy-search-result:hover { background:color-mix(in srgb,CanvasText 8%,transparent); }
@@ -55,17 +60,21 @@
     /* 모바일 학원관리 버튼만 컴팩트하게 표시 */
     @media (max-width:600px) {
       .academy-delete-row {
+        align-items:stretch;
+        flex-direction:column;
         gap:8px;
         padding:10px 0;
       }
 
       .academy-delete-actions {
+        display:grid;
+        grid-template-columns:repeat(4,minmax(0,1fr));
+        width:100%;
         gap:5px;
-        flex-wrap:nowrap;
       }
 
       .academy-delete-row button {
-        width:auto;
+        width:100%;
         min-width:0;
         padding:6px 8px;
         font-size:12px;
@@ -132,7 +141,7 @@
     <input name="password" type="password" autocomplete="current-password" placeholder="관리자 / 서브관리자 비밀번호" required>
     <button class="primary" type="submit">로그인</button>
     <button class="secondary" type="button" onclick="openRegister()">학원등록</button>
-    <button class="delete-academy" type="button" onclick="openDeleteAcademy()">학원삭제</button>
+    <button class="delete-academy" type="button" onclick="openDeleteAcademy()">학원관리</button>
     <a class="forgot" href="#" onclick="openForgot(event)">비밀번호를 잊으셨나요?</a>
   </form>
 
@@ -172,7 +181,7 @@
   <div id="deleteAcademyModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteAcademyTitle">
     <div class="modal-card">
       <div class="modal-head">
-        <h2 id="deleteAcademyTitle">학원삭제</h2>
+        <h2 id="deleteAcademyTitle">학원관리</h2>
         <button class="close" type="button" onclick="closeDeleteAcademy()">닫기</button>
       </div>
 
@@ -180,7 +189,7 @@
 
       <div id="deleteVerifyStep">
         <div class="step-title">1. 인증키 확인</div>
-        <p class="muted">인증키를 입력해 학원 삭제 권한을 확인합니다.</p>
+        <p class="muted">인증키를 입력해 학원 관리 권한을 확인합니다.</p>
         <input id="deleteLicenseKey" autocomplete="off" placeholder="인증키">
         <button id="deleteVerifyButton" class="primary" type="button" onclick="verifyDeleteKey()">인증하기</button>
       </div>
@@ -211,6 +220,14 @@
           <select id="academyActionDistrict" aria-label="시·군·구"></select>
         </div>
         <input id="academyActionNameInput" autocomplete="organization" placeholder="학원 이름">
+      </div>
+      <div id="academyActionNoticeFields" class="academy-action-notice-fields hidden">
+        <textarea id="academyActionNoticeInput" maxlength="10000" placeholder="공지 내용을 입력해 주세요."></textarea>
+        <label class="academy-notice-toggle">
+          <input id="academyActionNoticeEnabled" type="checkbox">
+          <span>사이트·모바일 관리자 로그인 시 공지 표시</span>
+        </label>
+        <p class="muted academy-notice-help">이 공지는 해당 학원의 메인 관리자가 사이트나 모바일 앱에 로그인할 때 표시됩니다.</p>
       </div>
 
       <div style="display:flex; gap:10px; margin-top:14px;">
@@ -503,7 +520,7 @@ function openDeleteAcademy() {
   deletionToken = null;
   managedAcademies = [];
   managementActiveState = true;
-  document.getElementById('deleteAcademyTitle').textContent = '학원삭제';
+  document.getElementById('deleteAcademyTitle').textContent = '학원관리';
   document.getElementById('academyManagementSearch').value = '';
   showDeleteAcademyError('');
   document.getElementById('deleteLicenseKey').value = '';
@@ -562,6 +579,7 @@ function renderManagedAcademies() {
         <div class="academy-status">${academy.is_active ? '활성화' : '비활성화'}</div>
       </div>
       <div class="academy-delete-actions">
+        <button type="button" data-academy-action="notice" data-academy-id="${academy.id}" data-academy-name="${escapeHtml(academy.name)}">공지</button>
         <button type="button" data-academy-action="rename" data-academy-id="${academy.id}" data-academy-name="${escapeHtml(academy.name)}" data-academy-region="${escapeHtml(academy.region || '')}" data-academy-district="${escapeHtml(academy.district || '')}">수정</button>
         <button type="button" data-academy-action="status" data-academy-id="${academy.id}" data-academy-name="${escapeHtml(academy.name)}" data-active="${academy.is_active ? 'false' : 'true'}">${academy.is_active ? '비활성화' : '활성화'}</button>
         <button class="danger" type="button" data-academy-action="delete" data-academy-id="${academy.id}" data-academy-name="${escapeHtml(academy.name)}">삭제</button>
@@ -607,7 +625,7 @@ function showAcademyActionError(message) {
   box.classList.toggle('hidden', !message);
 }
 
-function openAcademyAction(action, academyId, academyName, isActive = null, region = '', district = '') {
+async function openAcademyAction(action, academyId, academyName, isActive = null, region = '', district = '') {
   if (!deletionToken) {
     showDeleteAcademyError('인증키를 다시 확인해 주세요.');
     return;
@@ -625,14 +643,28 @@ function openAcademyAction(action, academyId, academyName, isActive = null, regi
   const title = document.getElementById('academyActionTitle');
   const message = document.getElementById('academyActionMessage');
   const fields = document.getElementById('academyActionFields');
+  const noticeFields = document.getElementById('academyActionNoticeFields');
+  const noticeInput = document.getElementById('academyActionNoticeInput');
+  const noticeEnabled = document.getElementById('academyActionNoticeEnabled');
   const input = document.getElementById('academyActionNameInput');
   const confirmButton = document.getElementById('academyActionConfirmButton');
 
   showAcademyActionError('');
   fields.classList.add('hidden');
+  noticeFields.classList.add('hidden');
   input.value = '';
+  noticeInput.value = '';
+  noticeEnabled.checked = false;
+  confirmButton.disabled = false;
 
-  if (action === 'rename') {
+  if (action === 'notice') {
+    title.textContent = '학원 공지';
+    message.textContent = `${pendingAcademyAction.academyName}의 사이트·모바일 관리자에게 표시할 공지입니다.`;
+    noticeFields.classList.remove('hidden');
+    confirmButton.textContent = '저장';
+    confirmButton.classList.remove('danger');
+    confirmButton.disabled = true;
+  } else if (action === 'rename') {
     title.textContent = '학원 수정';
     message.textContent = '지역, 시·군·구와 학원 이름을 수정할 수 있습니다.';
     populateRegionSelect('academyActionRegion', 'academyActionDistrict', pendingAcademyAction.region, pendingAcademyAction.district);
@@ -657,7 +689,24 @@ function openAcademyAction(action, academyId, academyName, isActive = null, regi
 
   document.getElementById('academyActionModal').classList.add('open');
 
-  if (action === 'rename') {
+  if (action === 'notice') {
+    const noticeAction = pendingAcademyAction;
+    try {
+      const state = await jsonPost('/api/v1/academy-management/notice', {
+        registration_token: deletionToken,
+        academy_id: noticeAction.academyId
+      });
+      if (pendingAcademyAction !== noticeAction) return;
+      noticeInput.value = state.content || '';
+      noticeEnabled.checked = !!state.enabled || !state.content;
+      confirmButton.disabled = false;
+      setTimeout(() => noticeInput.focus(), 50);
+    } catch (e) {
+      if (pendingAcademyAction === noticeAction) {
+        showAcademyActionError(e.message);
+      }
+    }
+  } else if (action === 'rename') {
     setTimeout(() => input.focus(), 50);
   }
 }
@@ -677,7 +726,20 @@ async function confirmAcademyAction() {
   button.disabled = true;
 
   try {
-    if (pendingAcademyAction.action === 'rename') {
+    if (pendingAcademyAction.action === 'notice') {
+      const content = document.getElementById('academyActionNoticeInput').value.trim();
+      const enabled = document.getElementById('academyActionNoticeEnabled').checked;
+      if (enabled && !content) {
+        showAcademyActionError('공지 내용을 입력해 주세요.');
+        return;
+      }
+      await jsonPost('/api/v1/academy-management/notice/apply', {
+        registration_token: deletionToken,
+        academy_id: pendingAcademyAction.academyId,
+        content,
+        enabled
+      });
+    } else if (pendingAcademyAction.action === 'rename') {
       const region = document.getElementById('academyActionRegion').value;
       const district = document.getElementById('academyActionDistrict').value;
       const newName = document.getElementById('academyActionNameInput').value.trim();
@@ -727,7 +789,9 @@ document.getElementById('deleteAcademyList').addEventListener('click', (event) =
   const academyId = Number(button.dataset.academyId);
   const academyName = button.dataset.academyName || '';
 
-  if (action === 'rename') {
+  if (action === 'notice') {
+    openAcademyAction('notice', academyId, academyName);
+  } else if (action === 'rename') {
     openAcademyAction('rename', academyId, academyName, null, button.dataset.academyRegion || '', button.dataset.academyDistrict || '');
   } else if (action === 'status') {
     openAcademyAction('status', academyId, academyName, button.dataset.active === 'true');
